@@ -1,6 +1,7 @@
 # Security model
 ## Purpose
-`codex-read-only-approver` reduces approval fatigue by automatically approving a narrow set of commands whose **visible shell syntax and documented options** are classified as read-only. It fails closed: an unknown, malformed, dynamic, write-capable, or helper-executing command emits no decision and remains subject to normal human approval.
+`codex-read-only-approver` reduces approval fatigue by automatically approving a narrow set of commands whose **visible shell syntax and documented options** are classified as read-only.
+It fails closed: an unknown, malformed, dynamic, write-capable, or helper-executing command emits no decision and remains subject to normal human approval.
 
 ## What the hook enforces
 For commands that reach Codex `PermissionRequest`, the hook attempts to ensure that an automatic allow contains none of the following explicit mechanisms:
@@ -17,7 +18,8 @@ For commands that reach Codex `PermissionRequest`, the hook attempts to ensure t
 Pipelines and command chains are approved only when every parsed segment is approved.
 
 ## What the hook cannot guarantee
-This is not a syscall-level read-only boundary. A command string classifier cannot prove that an arbitrary executable performs no writes internally.
+This is not a syscall-level read-only boundary.
+A command string classifier cannot prove that an arbitrary executable performs no writes internally.
 
 Examples include:
 
@@ -35,7 +37,8 @@ Examples include:
 - another matching hook may return `allow` independently;
 - future command versions may add new side-effecting options not yet recognized by this classifier.
 
-For a hard no-write guarantee, use an operating-system sandbox or mandatory access-control boundary that technically denies writes. This hook is intended for environments where the user has deliberately selected `danger-full-access` for compatibility and accepts a conservative command-policy layer rather than a kernel-enforced boundary.
+For a hard no-write guarantee, use an operating-system sandbox or mandatory access-control boundary that technically denies writes.
+This hook is intended for environments where the user has deliberately selected `danger-full-access` for compatibility and accepts a conservative command-policy layer rather than a kernel-enforced boundary.
 
 ## Deployment requirements
 Use all of the following:
@@ -45,15 +48,24 @@ approval_policy = untrusted
 approvals_reviewer = user
 ```
 
-Install the supplied `codex-read-only-approver.rules.example` as an active Codex rules file. It routes supported command families through `PermissionRequest`, including commands that Codex might otherwise classify as known-safe. Without this mediation rule, the hook cannot inspect an operation that Codex runs without asking.
+Install the supplied `codex-read-only-approver.rules.example` as an active Codex rules file.
+It routes supported command families through `PermissionRequest`, including commands that Codex might otherwise classify as known-safe.
+Without this mediation rule, the hook cannot inspect an operation that Codex runs without asking.
 
-Do not combine the intended policy with `auto_review`, `-a never`, `--ignore-rules`, or another mode that bypasses or forbids the native approval path. Review all exec-policy rules and all other matching hooks. A remembered or explicit allow rule can cause a command to bypass this hook's approval point.
+Do not combine the intended policy with `auto_review`, `-a never`, `--ignore-rules`, or another mode that bypasses or forbids the native approval path.
+Review all exec-policy rules and all other matching hooks.
+A remembered or explicit allow rule can cause a command to bypass this hook's approval point.
 
-Keep executable verification enabled. Only add trusted executable roots that cannot be modified by the agent without a separately reviewed write operation.
+Keep executable verification enabled.
+Only add trusted executable roots that cannot be modified by the agent without a separately reviewed write operation.
 
-Use a clean non-interactive shell where possible. Avoid aliases and shell functions that shadow allowed command names.
+Use a clean non-interactive shell where possible.
+Avoid aliases and shell functions that shadow allowed command names.
 
-The classifier understands POSIX Bash syntax only. The native Windows Codex agent runs commands in PowerShell, whose quoting, escaping, operators, and redirections have different semantics. The hook therefore fails closed on native Windows and emits no approval decision, and the diagnostic `--check` mode returns `ASK`. Use Codex in WSL2 when running this hook on a Windows machine.
+The classifier understands POSIX Bash syntax only.
+The native Windows Codex agent runs commands in PowerShell, whose quoting, escaping, operators, and redirections have different semantics.
+The hook therefore fails closed on native Windows and emits no approval decision, and the diagnostic `--check` mode returns `ASK`.
+Use Codex in WSL2 when running this hook on a Windows machine.
 
 Launch Codex with conservative Git environment defaults where practical:
 
@@ -64,7 +76,10 @@ GIT_PAGER=cat \
 codex -s danger-full-access -a untrusted -c approvals_reviewer=user --search
 ```
 
-The hook requires the pager and lazy fetch to be explicitly disabled for Git commands, and optional locks to be disabled before auto-approving `git status`. Diff-producing commands also require both `--no-ext-diff` and `--no-textconv`. It accepts the same environment variables as explicit per-command prefixes. These settings reduce pager execution, on-demand object fetches, optional index writes, and configured external-diff and text-conversion execution, but they do not turn Git or repository configuration into a formally verified read-only system.
+The hook requires the pager and lazy fetch to be explicitly disabled for Git commands, and optional locks to be disabled before auto-approving `git status`.
+Diff-producing commands also require both `--no-ext-diff` and `--no-textconv`.
+It accepts the same environment variables as explicit per-command prefixes.
+These settings reduce pager execution, on-demand object fetches, optional index writes, and configured external-diff and text-conversion execution, but they do not turn Git or repository configuration into a formally verified read-only system.
 
 ## Fail-closed behavior
 - malformed hook JSON: no decision;
@@ -76,4 +91,5 @@ The hook requires the pager and lazy fetch to be explicitly disabled for Git com
 No decision means Codex continues to its normal human approval prompt.
 
 ## Reporting a vulnerability
-Do not include secrets or destructive proof-of-concept payloads in a public issue. Report a minimal command that is incorrectly classified as `ALLOW`, the operating system, command version, and expected side effect through the repository's private security advisory channel.
+Do not include secrets or destructive proof-of-concept payloads in a public issue.
+Report a minimal command that is incorrectly classified as `ALLOW`, the operating system, command version, and expected side effect through the repository's private security advisory channel.

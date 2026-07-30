@@ -10,10 +10,12 @@ Every new automatic-allow path must include:
 4. a source note in the pull request identifying the command documentation reviewed;
 5. confirmation that the executable-path and shell-expansion assumptions remain valid.
 
-Unknown syntax must remain `ASK`. Do not broaden a rule merely to suppress a prompt.
+Unknown syntax must remain `ASK`.
+Do not broaden a rule merely to suppress a prompt.
 
 ## Third-party code
-Do not copy code, tests, regular expressions, or documentation from an unlicensed source. For licensed code, document the exact source, revision, license, required notices, and compatibility before incorporation.
+Do not copy code, tests, regular expressions, or documentation from an unlicensed source.
+For licensed code, document the exact source, revision, license, required notices, and compatibility before incorporation.
 
 ## Test command
 ```bash

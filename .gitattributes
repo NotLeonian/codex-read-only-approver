@@ -28,6 +28,9 @@
 *.md    text diff=markdown whitespace=-blank-at-eol
 *.mdx   text diff=markdown whitespace=-blank-at-eol
 
+# License
+LICENSE text
+
 # Python
 *.py    text diff=python
 *.pyi   text diff=python

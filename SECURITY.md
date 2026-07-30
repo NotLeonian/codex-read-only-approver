@@ -53,6 +53,8 @@ Keep executable verification enabled. Only add trusted executable roots that can
 
 Use a clean non-interactive shell where possible. Avoid aliases and shell functions that shadow allowed command names.
 
+The classifier understands POSIX Bash syntax only. The native Windows Codex agent runs commands in PowerShell, whose quoting, escaping, operators, and redirections have different semantics. The hook therefore fails closed on native Windows and emits no approval decision, and the diagnostic `--check` mode returns `ASK`. Use Codex in WSL2 when running this hook on a Windows machine.
+
 Launch Codex with conservative Git environment defaults where practical:
 
 ```bash

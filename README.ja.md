@@ -1,7 +1,7 @@
 # codex-read-only-approver
-Codex CLI 用の、依存パッケージを持たない保守的な `PermissionRequest` hook です。
+Codex CLI 用で、依存パッケージを必要としない保守的な `PermissionRequest` hook です。
 
-Bash コマンド**全体**が、限定された静的な読み取り専用文法に収まる場合だけ自動承認します。書き込み、外部ヘルパー実行、動的なシェル展開、不正な構文、未知のコマンドが含まれる場合は何も出力せず、Codex の通常の人間承認へ戻します。
+Bash コマンド全体が、静的に読み取り専用と判定できるよう意図的に限定した文法に収まる場合だけ自動承認します。書き込み、レビューされていない外部ヘルパーの実行、動的なシェル展開、不正な構文、未知のコマンドが含まれる場合は何も出力しません。このため、Codex は通常どおり人間に承認を求めます。
 
 主に次の運用を想定しています。
 
@@ -18,31 +18,31 @@ codex -s danger-full-access -a untrusted -c approvals_reviewer=user --search
 この hook は次を行います。
 
 - パイプラインおよび `&&`、`||`、`;` の各セグメントを個別に解析する
-- 全セグメントが読み取り専用と判定された場合だけ許可する
+- すべてのセグメントが読み取り専用と判定された場合だけ許可する
 - `/dev/null` への破棄を除き、出力リダイレクトを承認しない
-- コマンド置換、プロセス置換、未引用の glob・ブレース展開、heredoc、バックグラウンド実行、グループ化、未知のシェル構文を承認しない
-- 既定で実行ファイルの実体が信頼済みインストール先にあるか確認する
-- `sed`、`git`、`find`、`fd`、`rg`、`uniq`、`base64`、`yq`、`tar`、圧縮系コマンド、`unzip`、`sysctl`、`date`、`hostname`、`file`、`tree`、`nm`、`objdump` を引数込みで判定する
-- 書き込み可能または曖昧なコマンドでは無出力にし、通常の人間承認を維持する
-- 自動拒否は行わないため、分類器が理解しない操作でも人間が承認できる
+- コマンド置換、プロセス置換、引用符で囲まれていない glob やブレースの展開、heredoc、バックグラウンド実行、グループ化、未知のシェル構文を承認しない
+- 既定で実行ファイルの実体が信頼済みのインストール先にあるか確認する
+- `sed`、`git`、`find`、`fd`、`rg`、`uniq`、`base64`、`yq`、`tar`、各種圧縮コマンド、`unzip`、`sysctl`、`date`、`hostname`、`file`、`tree`、`nm`、`objdump` を引数も含めて判定する
+- 書き込み可能または曖昧なコマンドでは何も出力せず、通常どおり人間による承認を求める
+- 自動的な拒否は行わないため、分類器が理解しない操作でも人間が承認できる
 
-以下の表は、冒頭の推奨起動環境（`GIT_PAGER=cat` と `GIT_NO_LAZY_FETCH=1` を含む）を前提にしています。
+以下の表は、冒頭で推奨した起動環境（`GIT_PAGER=cat` と `GIT_NO_LAZY_FETCH=1` を含む）を前提にしています。
 
 | コマンド | 結果 |
 |---|---|
 | `sed -n '1,80p' file` | 自動承認 |
 | `sed 's/old/new/g' file` | 自動承認 |
-| `sed -i 's/old/new/g' file` | 人間承認 |
-| `sed 'w output.txt' file` | 人間承認 |
+| `sed -i 's/old/new/g' file` | 人間による承認 |
+| `sed 'w output.txt' file` | 人間による承認 |
 | `GIT_OPTIONAL_LOCKS=0 git status --short` | 自動承認 |
-| `git status --short`（`GIT_OPTIONAL_LOCKS` 未設定） | 人間承認（Git が index を更新する可能性） |
+| `git status --short`（`GIT_OPTIONAL_LOCKS` が未設定） | 人間による承認（Git がインデックスを更新する可能性） |
 | `git diff --no-ext-diff --no-textconv --stat \| sed -n '1,20p'` | 自動承認 |
-| `git branch -f name HEAD` | 人間承認 |
-| `uniq input output` | 人間承認（第2ファイル引数は出力先） |
-| `sort input` | 人間承認（内部一時ファイルへ spill する可能性） |
-| `cat input \| tee output` | 人間承認 |
-| `rg TODO . > matches.txt` | 人間承認 |
-| `python3 -c '...'` | 人間承認 |
+| `git branch -f name HEAD` | 人間による承認 |
+| `uniq input output` | 人間による承認（2 番目のファイル引数は出力先） |
+| `sort input` | 人間による承認（内部で一時ファイルに書き出す可能性） |
+| `cat input \| tee output` | 人間による承認 |
+| `rg TODO . > matches.txt` | 人間による承認 |
+| `python3 -c '...'` | 人間による承認 |
 
 ## 導入
 ### スクリプトを直接配置する方法
@@ -54,7 +54,7 @@ install -m 0755 codex_read_only_approver.py \
 
 [`hooks.json.example`](hooks.json.example) の内容を `~/.codex/hooks.json` に統合します。例では `$HOME` 配下のスクリプトを直接実行します。配置場所が異なる場合は変更してください。
 
-次に、Codex 内蔵の既知安全判定で hook を迂回しないよう、同梱の exec-policy ルールを配置します。
+次に、Codex がコマンドを既知の安全なものと判定して hook を迂回しないよう、同梱の exec-policy ルールを配置します。
 
 ```bash
 mkdir -p ~/.codex/rules
@@ -62,9 +62,9 @@ install -m 0644 codex-read-only-approver.rules.example \
   ~/.codex/rules/codex-read-only-approver.rules
 ```
 
-このルールは、対応コマンドを自動許可するものではありません。対応コマンドを必ず `PermissionRequest` に送り、hook が `allow` を返さなければ通常の人間承認を表示させます。hook を使わない Codex セッションでもルールは読み込まれるため、その場合は承認要求が増えます。`-a never` や承認を無効化するモードとは併用しないでください。
+このルールは、対応しているコマンドを自動許可するものではありません。該当するコマンドを必ず `PermissionRequest` に送ります。hook が `allow` を返さなければ、Codex は通常どおり人間に承認を求めます。hook を使わない Codex セッションでもルールは読み込まれるため、その場合は承認の要求が増えます。`-a never` や承認を無効化するモードとは併用しないでください。
 
-Codex は人間レビューを明示し、Git の既知の任意書き込みと lazy fetch を抑止する環境で起動します。
+Git が必要に応じて行う書き込みと lazy fetch を抑止し、人間を承認者に指定して Codex を起動します。
 
 ```bash
 GIT_OPTIONAL_LOCKS=0 \
@@ -77,7 +77,7 @@ codex \
   --search
 ```
 
-Codex の `/hooks` を開き、hook 定義を確認して信頼します。hook のコマンドやファイルを変更し、Codex が再レビューを求めた場合はもう一度確認してください。
+Codex の `/hooks` を開き、hook の定義を確認して信頼します。hook のコマンドやファイルを変更し、Codex が再度のレビューを求めた場合はもう一度確認してください。
 
 ### Python パッケージとして導入する方法
 ```bash
@@ -87,8 +87,11 @@ codex-read-only-approver --version
 
 `hooks.json` では、可能ならインストールされたコマンドの絶対パスを指定してください。
 
+### Windows で使用する場合
+Windows のネイティブ環境で動作する Codex agent は PowerShell を使用しますが、この hook が扱うのは Bash/POSIX shell の文法だけです。そのため、ネイティブ Windows では安全側に倒して自動承認を行わず、診断用の `--check` も `ASK` を返します。Windows でこの hook を使う場合は、WSL 2 上で Codex を実行してください。
+
 ## 設定
-設定は任意です。次の順序で読み込みます。
+設定は任意です。hook は次の順序で設定を読み込みます。
 
 1. `CODEX_READ_ONLY_APPROVER_CONFIG` が示すファイル
 2. `$XDG_CONFIG_HOME/codex-read-only-approver/config.json`
@@ -105,24 +108,24 @@ codex-read-only-approver --version
 }
 ```
 
-通常、`verify_executable_paths` と `verify_ambient_environment` は `true` のままにします。後者は `GIT_EXTERNAL_DIFF`、`RIPGREP_CONFIG_PATH`（`rg --no-config` 使用時を除く）、`TAR_OPTIONS`、圧縮・展開コマンドのオプション環境変数などを検出します。
+通常、`verify_executable_paths` と `verify_ambient_environment` は `true` のままにします。後者では `GIT_EXTERNAL_DIFF`、`RIPGREP_CONFIG_PATH`（`rg --no-config` の使用時を除く）、`TAR_OPTIONS`、圧縮・展開コマンド用のオプション環境変数などを検出します。
 
 ### Git の追加条件
-Git は「読み取り」サブコマンドでも、pager、partial clone の lazy fetch、index refresh、textconv filter などを実行し得ます。そのため、この hook は次を要求します。
+Git は読み取り用のサブコマンドでも、pager の起動、partial clone からの lazy fetch、インデックスの更新、textconv フィルターの実行などを行う可能性があります。そのため、この hook は次を要求します。
 
 - `GIT_PAGER=cat` または `git --no-pager`
 - `GIT_NO_LAZY_FETCH=1` または `git --no-lazy-fetch`
 - `git status` では、さらに `GIT_OPTIONAL_LOCKS=0` または `git --no-optional-locks`
 - `git diff`、通常の `git show`、patch を表示する `git log` / `git stash show` / `git reflog show` では `--no-ext-diff` と `--no-textconv` の両方
 
-起動例の環境変数を使えば、各 Git コマンドに最初の2項目を繰り返す必要はありません。リポジトリ内の blob を直接読む `git show HEAD:path` は diff を生成しないため、この2つの diff helper 無効化オプションを要求しません。バージョンによって意味が変化し得る短縮形 `git branch -l` と `git tag -l` は意図的に人間承認へ回します。明示的な `--list` を使用してください。
+起動例の環境変数を使えば、各 Git コマンドに最初の 2 項目を繰り返す必要はありません。リポジトリ内の blob を直接読む `git show HEAD:path` は diff を生成しないため、diff ヘルパーを無効にするこの 2 つのオプションは要求しません。バージョンによって意味が変化する可能性がある短縮形 `git branch -l` と `git tag -l` は、意図的に人間による承認へ回します。明示的な `--list` を使用してください。
 
 実行ファイルのルートを追加するのは、次の両方を満たす場合に限定してください。
 
-- 自動承認したいコマンドに必要である
-- そのディレクトリを Codex が独立した人間承認なしに変更できない
+- 自動承認の対象にしたいコマンドの実行に必要である
+- そのディレクトリを、別途人間が承認する書き込み操作なしには Codex が変更できない
 
-`~/.local/bin`、`~/.cargo/bin`、言語マネージャーの shim、プロジェクト内の `node_modules/.bin` など、ユーザーが書き込める場所を追加すると、実行ファイルの同一性確認が弱くなります。
+`~/.local/bin`、`~/.cargo/bin`、言語マネージャーの shim、プロジェクト内の `node_modules/.bin` など、ユーザーが書き込める場所を追加すると、実行ファイルの同一性を確認する仕組みが弱くなります。
 
 ## 診断
 Codex を起動せずに判定できます。
@@ -139,47 +142,49 @@ ALLOW: sed program contains no write or execute command
 ASK: segment 1: sed in-place mode writes files
 ```
 
-分類器のテスト目的に限り、実行ファイルのパス確認を無効化できます。
+分類器をテストする場合に限り、実行ファイルのパス確認を無効化できます。
 
 ```bash
 ./codex_read_only_approver.py --no-path-check --check \
   "GIT_PAGER=cat GIT_NO_LAZY_FETCH=1 GIT_OPTIONAL_LOCKS=0 git status"
 ```
 
-PATH や実行ファイルの差し替えリスクを明示的に許容しない限り、本番の hook 定義には `--no-path-check` を入れないでください。
+PATH や実行ファイルの差し替えによるリスクを明示的に許容しない限り、本番の hook の定義には `--no-path-check` を入れないでください。
 
-## Codex への推奨指示
+## Codex に与える指示の例
 [`AGENTS.md.snippet`](AGENTS.md.snippet) は Codex に次を促します。
 
-- 読み取りと変更を別々の tool call に分ける
-- shell glob ではなく引用済みパターンを使う
-- 読み取り専用 Git 操作に `GIT_OPTIONAL_LOCKS=0` と `GIT_NO_LAZY_FETCH=1` を付ける
-- Git pager を `cat` に固定し、diff 系では `--no-ext-diff --no-textconv` を付ける
-- 編集には `apply_patch` または独立した明示的な変更コマンドを使う
-- 読み取り操作で動的なシェル構文を使わない
+- 読み取り操作と変更操作を別々の tool call に分ける
+- shell の glob に頼らず、パターンを引用符で囲む
+- Git の読み取り専用操作では `GIT_OPTIONAL_LOCKS=0` と `GIT_NO_LAZY_FETCH=1` を付ける
+- Git の pager を `cat` に固定し、diff を生成するコマンドでは `--no-ext-diff --no-textconv` を付ける
+- 編集には `apply_patch` を使うか、変更を行うコマンドを明示的に別途実行する
+- 読み取り操作では動的なシェル構文を使わない
 
-これにより、承認判定の精度と監査可能性が上がります。
+これにより、承認を判断する精度が高まり、監査もしやすくなります。
 
 ## テスト
 ```bash
 python3 -m unittest -v
 ```
 
-読み取り専用の正常系、書き込み可能・動的シェルの異常系、Codex hook の出力契約、不正 JSON、読み取りコマンドへ危険な接尾辞を付けたケースを検証しています。
+読み取り専用コマンドを扱う正常系、書き込み可能なコマンドや動的なシェル構文を扱う異常系、Codex hook の出力仕様、不正な JSON、読み取り用コマンドに危険な接尾辞を付けたケースを検証しています。
 
-## 成立に必要な運用条件
-意図した挙動には、次の条件がすべて必要です。
+CI では Ubuntu、macOS、Windows 上でテストと Python の品質チェックを実行します。Windows の runner では、ネイティブ環境で自動承認しないことも検証しますが、これは PowerShell コマンドの分類に対応していることを意味しません。
+
+## 想定どおりの動作に必要な条件
+意図した動作には、次の条件がすべて必要です。
 
 - Codex が `approval_policy=untrusted` で動作する
 - 承認先が `auto_review` ではなく `user` である
-- 同梱の `codex-read-only-approver.rules` が有効で、対応コマンドを `PermissionRequest` に送っている
-- 別の exec-policy ルールが変更コマンドを事前許可していない
-- 別の `PermissionRequest` hook が変更コマンドに `allow` を返さない
-- この hook が有効かつ信頼済みである
-- 信頼済み実行ファイルのルートと shell 環境が管理されている
-- 読み取りと変更を、一つの複合 shell コマンドに混在させない
+- 同梱の `codex-read-only-approver.rules` が有効で、対応しているコマンドを `PermissionRequest` に送っている
+- 別の exec-policy ルールが変更を行うコマンドを事前に許可していない
+- 別の `PermissionRequest` hook が変更を行うコマンドに `allow` を返さない
+- この hook が有効であり、信頼されている
+- 信頼済みの実行ファイルを置くルートと shell の環境が管理されている
+- 読み取り操作と変更操作を、1 つの複合 shell コマンドに混在させない
 
-Codex は、もともと承認を要求しようとしている操作に対してのみ `PermissionRequest` を呼びます。同梱ルールは、この判定点を既知安全コマンドにも作るためのものです。それでも、別の allow ルール、承認記憶、別 hook、または将来の実行経路が無承認実行を許せば、この hook を迂回し得ます。
+Codex は、承認を要求しようとしている操作に対してのみ `PermissionRequest` を呼び出します。同梱のルールは、既知の安全なコマンドについても承認を判断する機会を設けます。それでも、別の allow ルールや記憶された承認、別の hook、将来追加される実行経路によって承認なしでコマンドが実行される場合は、この hook が迂回される可能性があります。
 
 ## ライセンス
 Apache License 2.0 です。[LICENSE](LICENSE) を参照してください。

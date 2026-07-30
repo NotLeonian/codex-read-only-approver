@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-import io
 import json
 import os
 import re
@@ -13,7 +12,6 @@ from unittest import mock
 
 import codex_read_only_approver as hook
 
-
 CONFIG = hook.Config(
     verify_executable_paths=False,
     trusted_executable_roots=(),
@@ -24,6 +22,30 @@ SAFE_GIT_ENV = {
     "GIT_PAGER": "cat",
     "GIT_NO_LAZY_FETCH": "1",
 }
+
+# Keep tests independent of shell/runtime injection variables in the developer
+# or CI environment while retaining variables needed to spawn Python on Windows.
+TEST_ENV = {
+    name: os.environ[name]
+    for name in (
+        "COMSPEC",
+        "HOME",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "PATH",
+        "PATHEXT",
+        "SYSTEMROOT",
+        "TEMP",
+        "TMP",
+        "USERPROFILE",
+        "WINDIR",
+    )
+    if name in os.environ
+}
+TEST_ENV.update(SAFE_GIT_ENV)
+TEST_ENV["CODEX_READ_ONLY_APPROVER_CONFIG"] = str(
+    Path(__file__).with_name(".nonexistent-test-config.json")
+)
 
 
 ALLOW_CASES = {
@@ -256,7 +278,7 @@ ASK_CASES = {
 class ClassificationTests(unittest.TestCase):
     def test_allow_cases(self) -> None:
         failures = []
-        with mock.patch.dict(os.environ, SAFE_GIT_ENV, clear=False):
+        with mock.patch.dict(os.environ, TEST_ENV, clear=True):
             for name, command in ALLOW_CASES.items():
                 with self.subTest(name=name, command=command):
                     result = hook.classify(command, CONFIG)
@@ -266,7 +288,7 @@ class ClassificationTests(unittest.TestCase):
 
     def test_ask_cases(self) -> None:
         failures = []
-        with mock.patch.dict(os.environ, SAFE_GIT_ENV, clear=False):
+        with mock.patch.dict(os.environ, TEST_ENV, clear=True):
             for name, command in ASK_CASES.items():
                 with self.subTest(name=name, command=command):
                     result = hook.classify(command, CONFIG)
@@ -276,7 +298,9 @@ class ClassificationTests(unittest.TestCase):
 
     def test_oversized_command_fails_closed(self) -> None:
         small_config = hook.Config(False, (), 16)
-        self.assertEqual(hook.Verdict.ASK, hook.classify("cat " + "x" * 100, small_config).verdict)
+        self.assertEqual(
+            hook.Verdict.ASK, hook.classify("cat " + "x" * 100, small_config).verdict
+        )
 
     def test_untrusted_absolute_executable_fails_closed(self) -> None:
         strict = hook.Config(True, (Path("/usr/bin"),), 65_536)
@@ -292,27 +316,32 @@ class ClassificationTests(unittest.TestCase):
             ({"PERL5OPT": "-MEvil"}, "shasum file"),
             ({"GIT_EXTERNAL_DIFF": "touch owned"}, "git diff"),
             ({"RIPGREP_CONFIG_PATH": "/tmp/rg.conf"}, "rg pattern ."),
-            ({"TAR_OPTIONS": "--checkpoint-action=exec=touch owned"}, "tar -tf archive.tar"),
+            (
+                {"TAR_OPTIONS": "--checkpoint-action=exec=touch owned"},
+                "tar -tf archive.tar",
+            ),
             ({"UNZIPOPT": "-o"}, "unzip -l archive.zip"),
             ({"DEBUGINFOD_URLS": "https://debuginfod.example"}, "objdump -h binary"),
         ]
         for environment, command in cases:
             with self.subTest(environment=environment, command=command):
-                with mock.patch.dict(os.environ, environment, clear=False):
+                with mock.patch.dict(
+                    os.environ, {**TEST_ENV, **environment}, clear=True
+                ):
                     result = hook.classify(command, CONFIG)
                 self.assertEqual(hook.Verdict.ASK, result.verdict)
-
 
     def test_safe_inline_environment_overrides_unsafe_ambient_value(self) -> None:
         with mock.patch.dict(
             os.environ,
             {
+                **TEST_ENV,
                 "GIT_PAGER": "evil-pager",
                 "PAGER": "less",
                 "GIT_OPTIONAL_LOCKS": "1",
                 "GIT_NO_LAZY_FETCH": "0",
             },
-            clear=False,
+            clear=True,
         ):
             result = hook.classify(
                 "GIT_PAGER=cat GIT_OPTIONAL_LOCKS=0 "
@@ -333,16 +362,24 @@ class ClassificationTests(unittest.TestCase):
         self.assertIn("lazy fetch", result.reason.lower())
 
     def test_tar_ambient_remote_defaults_fail_closed(self) -> None:
-        with mock.patch.dict(os.environ, {"TAPE": "host:/dev/nst0"}, clear=False):
+        with mock.patch.dict(
+            os.environ, {**TEST_ENV, "TAPE": "host:/dev/nst0"}, clear=True
+        ):
             result = hook.classify("tar -t", CONFIG)
         self.assertEqual(hook.Verdict.ASK, result.verdict)
 
-        with mock.patch.dict(os.environ, {"TAR_RSH": "evil-helper"}, clear=False):
+        with mock.patch.dict(
+            os.environ, {**TEST_ENV, "TAR_RSH": "evil-helper"}, clear=True
+        ):
             result = hook.classify("tar -tf archive.tar", CONFIG)
         self.assertEqual(hook.Verdict.ASK, result.verdict)
 
     def test_rg_no_config_neutralizes_ambient_config(self) -> None:
-        with mock.patch.dict(os.environ, {"RIPGREP_CONFIG_PATH": "/tmp/rg.conf"}, clear=False):
+        with mock.patch.dict(
+            os.environ,
+            {**TEST_ENV, "RIPGREP_CONFIG_PATH": "/tmp/rg.conf"},
+            clear=True,
+        ):
             result = hook.classify("rg --no-config pattern .", CONFIG)
         self.assertEqual(hook.Verdict.ALLOW, result.verdict)
 
@@ -365,12 +402,13 @@ class ClassificationTests(unittest.TestCase):
             " `touch output.txt`",
         ]
         failures = []
-        for base in bases:
-            for suffix in suffixes:
-                command = base + suffix
-                result = hook.classify(command, CONFIG)
-                if result.verdict is not hook.Verdict.ASK:
-                    failures.append((command, result.reason))
+        with mock.patch.dict(os.environ, TEST_ENV, clear=True):
+            for base in bases:
+                for suffix in suffixes:
+                    command = base + suffix
+                    result = hook.classify(command, CONFIG)
+                    if result.verdict is not hook.Verdict.ASK:
+                        failures.append((command, result.reason))
         self.assertEqual([], failures)
 
 
@@ -438,7 +476,6 @@ class HookProtocolTests(unittest.TestCase):
     def run_hook(self, command: str) -> subprocess.CompletedProcess[str]:
         script = Path(__file__).with_name("codex_read_only_approver.py")
         payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": command}})
-        env = os.environ.copy()
         # Disable path checking only in the isolated protocol test.
         with self.subTest(command=command):
             return subprocess.run(
@@ -447,15 +484,75 @@ class HookProtocolTests(unittest.TestCase):
                 text=True,
                 capture_output=True,
                 check=False,
-                env=env,
+                env=TEST_ENV,
             )
 
+    @unittest.skipIf(os.name == "nt", "native Windows hooks fail closed")
     def test_allow_shape_matches_codex_permission_request_contract(self) -> None:
         result = self.run_hook("sed -n '1,5p' README.md")
         self.assertEqual(0, result.returncode)
         output = json.loads(result.stdout)
-        self.assertEqual("PermissionRequest", output["hookSpecificOutput"]["hookEventName"])
+        self.assertEqual(
+            "PermissionRequest", output["hookSpecificOutput"]["hookEventName"]
+        )
         self.assertEqual("allow", output["hookSpecificOutput"]["decision"]["behavior"])
+
+    def test_native_windows_hook_fails_closed_before_parsing(self) -> None:
+        with (
+            mock.patch.object(hook.os, "name", "nt"),
+            mock.patch.object(hook.json, "load") as load,
+            mock.patch.object(hook, "classify") as classify,
+        ):
+            self.assertEqual(0, hook._hook_main(CONFIG))
+        load.assert_not_called()
+        classify.assert_not_called()
+
+    def test_native_windows_diagnostic_fails_closed(self) -> None:
+        with (
+            mock.patch.object(hook.os, "name", "nt"),
+            mock.patch("builtins.print") as print_output,
+        ):
+            self.assertEqual(
+                1,
+                hook._cli_main(["--no-path-check", "--check", r"echo safe \> victim"]),
+            )
+        print_output.assert_called_once_with(
+            "ASK: native Windows PowerShell is not supported; run Codex in WSL2"
+        )
+
+    @unittest.skipUnless(os.name == "nt", "requires native Windows")
+    def test_native_windows_hook_is_always_silent(self) -> None:
+        for command in (
+            "cat README.md",
+            r"echo safe \; Remove-Item victim",
+            r"echo safe \> victim",
+        ):
+            with self.subTest(command=command):
+                result = self.run_hook(command)
+                self.assertEqual(0, result.returncode)
+                self.assertEqual("", result.stdout)
+
+    @unittest.skipUnless(os.name == "nt", "requires native Windows")
+    def test_native_windows_diagnostic_subprocess_fails_closed(self) -> None:
+        script = Path(__file__).with_name("codex_read_only_approver.py")
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "--no-path-check",
+                "--check",
+                r"echo safe \> victim",
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+            env=TEST_ENV,
+        )
+        self.assertEqual(1, result.returncode)
+        self.assertEqual(
+            "ASK: native Windows PowerShell is not supported; run Codex in WSL2\n",
+            result.stdout,
+        )
 
     def test_ask_is_silent(self) -> None:
         result = self.run_hook("sed -i 's/a/b/' file")
@@ -464,17 +561,20 @@ class HookProtocolTests(unittest.TestCase):
 
     def test_other_hook_event_is_silent(self) -> None:
         script = Path(__file__).with_name("codex_read_only_approver.py")
-        payload = json.dumps({
-            "hook_event_name": "PreToolUse",
-            "tool_name": "Bash",
-            "tool_input": {"command": "cat README.md"},
-        })
+        payload = json.dumps(
+            {
+                "hook_event_name": "PreToolUse",
+                "tool_name": "Bash",
+                "tool_input": {"command": "cat README.md"},
+            }
+        )
         result = subprocess.run(
             [sys.executable, str(script), "--no-path-check"],
             input=payload,
             text=True,
             capture_output=True,
             check=False,
+            env=TEST_ENV,
         )
         self.assertEqual(0, result.returncode)
         self.assertEqual("", result.stdout)
@@ -490,6 +590,7 @@ class HookProtocolTests(unittest.TestCase):
             text=True,
             capture_output=True,
             check=False,
+            env=TEST_ENV,
         )
         self.assertEqual(0, result.returncode)
         self.assertEqual("", result.stdout)
@@ -502,6 +603,7 @@ class HookProtocolTests(unittest.TestCase):
             text=True,
             capture_output=True,
             check=False,
+            env=TEST_ENV,
         )
         self.assertEqual(0, result.returncode)
         self.assertEqual("", result.stdout)

@@ -1,7 +1,7 @@
 # codex-read-only-approver
 A conservative, dependency-free `PermissionRequest` hook for Codex CLI.
 
-It auto-approves a Bash command only when the **entire command string** fits a deliberately small, statically read-only grammar. Anything that writes, executes an unreviewed helper, uses dynamic shell expansion, is malformed, or is unknown produces no hook decision and therefore falls through to Codex's normal human approval prompt.
+It auto-approves a Bash command only when the entire command string fits a deliberately small, statically read-only grammar. Anything that writes, executes an unreviewed helper, uses dynamic shell expansion, is malformed, or is unknown produces no hook decision and therefore falls through to Codex's normal human approval prompt.
 
 This project is designed for the following operating model:
 
@@ -89,6 +89,9 @@ codex-read-only-approver --version
 
 Use an absolute path to the installed console script in `hooks.json` when possible.
 
+### Windows
+Native Windows Codex agents use PowerShell, but this hook recognizes only Bash/POSIX shell grammar. It therefore fails closed on native Windows, does not auto-approve commands, and reports `ASK` in diagnostic `--check` mode. To use this hook on Windows, run Codex inside WSL 2.
+
 ## Configuration
 Configuration is optional. The hook reads, in order:
 
@@ -168,6 +171,8 @@ python3 -m unittest -v
 ```
 
 The test suite covers positive read-only cases, write-capable and dynamic-shell cases, the Codex hook output contract, malformed input, and mutation suffixes appended to otherwise safe commands.
+
+CI runs the tests and Python quality checks on Ubuntu, macOS, and Windows. The Windows runner also verifies native fail-closed behavior; it does not imply support for classifying PowerShell commands.
 
 ## Required deployment assumptions
 For the intended behavior, all of the following must remain true:

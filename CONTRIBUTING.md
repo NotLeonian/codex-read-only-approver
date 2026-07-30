@@ -17,6 +17,10 @@ Do not copy code, tests, regular expressions, or documentation from an unlicense
 
 ## Test command
 ```bash
-python3 -m unittest -v
-python3 -m py_compile codex_read_only_approver.py test_codex_read_only_approver.py
+python -m ruff format --check codex_read_only_approver.py test_codex_read_only_approver.py
+python -m ruff check codex_read_only_approver.py test_codex_read_only_approver.py
+python -m mypy codex_read_only_approver.py test_codex_read_only_approver.py
+python -m pyright codex_read_only_approver.py test_codex_read_only_approver.py
+python -m unittest -v
+python -m py_compile codex_read_only_approver.py test_codex_read_only_approver.py
 ```

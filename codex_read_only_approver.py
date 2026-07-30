@@ -19,11 +19,10 @@ import re
 import shlex
 import shutil
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Sequence
-
 
 __version__ = "0.1.0"
 
@@ -208,6 +207,9 @@ REDIRECTION_OPERATORS = {
 }
 
 _ASSIGNMENT_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)\Z", re.DOTALL)
+_NATIVE_WINDOWS_UNSUPPORTED_REASON = (
+    "native Windows PowerShell is not supported; run Codex in WSL2"
+)
 
 
 def allow(reason: str) -> Result:
@@ -253,7 +255,9 @@ def load_config() -> Config:
         if "max_command_bytes" in raw:
             value = raw["max_command_bytes"]
             if not isinstance(value, int) or not 1024 <= value <= 1_048_576:
-                raise PolicyError("max_command_bytes must be an integer from 1024 to 1048576")
+                raise PolicyError(
+                    "max_command_bytes must be an integer from 1024 to 1048576"
+                )
             max_bytes = value
 
     normalized: list[Path] = []
@@ -403,7 +407,9 @@ def lex_shell(command: str) -> list[Token]:
             word_started = False
 
     def emit_semicolon() -> None:
-        if tokens and not (tokens[-1].kind == "op" and tokens[-1].value in CONTROL_OPERATORS):
+        if tokens and not (
+            tokens[-1].kind == "op" and tokens[-1].value in CONTROL_OPERATORS
+        ):
             tokens.append(Token("op", ";"))
 
     while i < n:
@@ -445,7 +451,9 @@ def lex_shell(command: str) -> list[Token]:
                     i += 1
                     break
                 if inner in {"$", "`"}:
-                    raise PolicyError("dynamic expansion inside double quotes is not supported")
+                    raise PolicyError(
+                        "dynamic expansion inside double quotes is not supported"
+                    )
                 if inner == "\\":
                     if i + 1 >= n:
                         raise PolicyError("trailing backslash in double quote")
@@ -480,9 +488,13 @@ def lex_shell(command: str) -> list[Token]:
             continue
 
         if ch in {"$", "`"}:
-            raise PolicyError("dynamic expansion or command substitution is not supported")
+            raise PolicyError(
+                "dynamic expansion or command substitution is not supported"
+            )
         if ch in {"*", "?", "["}:
-            raise PolicyError("unquoted glob expansion is not auto-approved; quote the pattern")
+            raise PolicyError(
+                "unquoted glob expansion is not auto-approved; quote the pattern"
+            )
         if ch == "{":
             close = command.find("}", i + 1)
             if close != -1:
@@ -591,13 +603,27 @@ def _strip_redirections(tokens: Sequence[Token]) -> tuple[list[str], list[str]]:
             notes.append(f"input redirection {op}{target}")
         elif op in {"<&", "0<&", "1<&", "2<&"}:
             if not (target.isdigit() or target == "-"):
-                raise PolicyError(f"input fd redirection to a path is not allowed: {op}{target}")
+                raise PolicyError(
+                    f"input fd redirection to a path is not allowed: {op}{target}"
+                )
             notes.append(f"fd duplication {op}{target}")
         elif op in {">&", "0>&", "1>&", "2>&"}:
             if not (target in {"1", "2", "-"}):
                 raise PolicyError(f"output redirection is not read-only: {op}{target}")
             notes.append(f"fd duplication {op}{target}")
-        elif op in {">", "1>", "2>", ">>", "1>>", "2>>", ">|", "1>|", "2>|", "&>", "&>>"}:
+        elif op in {
+            ">",
+            "1>",
+            "2>",
+            ">>",
+            "1>>",
+            "2>>",
+            ">|",
+            "1>|",
+            "2>|",
+            "&>",
+            "&>>",
+        }:
             if target != "/dev/null":
                 raise PolicyError(f"output redirection may write a file: {op}{target}")
             notes.append(f"discard output via {op}/dev/null")
@@ -629,7 +655,9 @@ def _strip_safe_env(argv: Sequence[str]) -> tuple[list[str], list[str]]:
     while rest and _ASSIGNMENT_RE.fullmatch(rest[0]):
         assignment = rest.pop(0)
         if not _safe_env_assignment(assignment):
-            raise PolicyError(f"environment assignment can alter command behavior: {assignment}")
+            raise PolicyError(
+                f"environment assignment can alter command behavior: {assignment}"
+            )
         assignments.append(assignment)
     if not rest:
         raise PolicyError("standalone environment assignment is not auto-approved")
@@ -657,7 +685,9 @@ def _is_long_option_or_abbreviation(arg: str, option: str) -> bool:
     """
 
     name = _long_option_name(arg)
-    return name == option or (name.startswith("--") and len(name) > 2 and option.startswith(name))
+    return name == option or (
+        name.startswith("--") and len(name) > 2 and option.startswith(name)
+    )
 
 
 def _has_long_option_or_abbreviation(argv: Sequence[str], *options: str) -> str | None:
@@ -723,7 +753,9 @@ def _classify_diff(argv: Sequence[str]) -> Result:
     command = os.path.basename(argv[0])
     if command == "diff":
         dangerous = _has_long_option_or_abbreviation(argv[1:], "--paginate")
-        if dangerous or any(arg == "-l" or _short_cluster_contains(arg, "l") for arg in argv[1:]):
+        if dangerous or any(
+            arg == "-l" or _short_cluster_contains(arg, "l") for arg in argv[1:]
+        ):
             return ask("diff pagination executes the external pr helper")
         return allow("diff comparison to standard output")
     dangerous = _has_long_option_or_abbreviation(argv[1:], "--diff-program")
@@ -746,7 +778,11 @@ def _classify_timeout(argv: Sequence[str], config: Config) -> Result:
                 return ask(f"timeout option requires a value: {arg}")
             i += 2
             continue
-        if any(arg.startswith(name + "=") for name in value_options if name.startswith("--")):
+        if any(
+            arg.startswith(name + "=")
+            for name in value_options
+            if name.startswith("--")
+        ):
             i += 1
             continue
         if arg in flag_options:
@@ -824,9 +860,13 @@ def _classify_rg(argv: Sequence[str]) -> Result:
 def _classify_fd(argv: Sequence[str]) -> Result:
     dangerous = {"-x", "--exec", "-X", "--exec-batch"}
     for arg in argv[1:]:
-        if arg in dangerous or arg.startswith("--exec=") or arg.startswith("--exec-batch="):
+        if arg in dangerous or arg.startswith(("--exec=", "--exec-batch=")):
             return ask(f"fd option can execute commands: {arg}")
-        if arg.startswith("-") and not arg.startswith("--") and any(ch in arg[1:] for ch in "xX"):
+        if (
+            arg.startswith("-")
+            and not arg.startswith("--")
+            and any(ch in arg[1:] for ch in "xX")
+        ):
             return ask(f"fd short-option cluster can execute commands: {arg}")
     return allow("fd file search")
 
@@ -873,7 +913,9 @@ def _classify_uniq(argv: Sequence[str]) -> Result:
             i += 2
             continue
         if not end_options and any(
-            arg.startswith(name + "=") for name in value_options if name.startswith("--")
+            arg.startswith(name + "=")
+            for name in value_options
+            if name.startswith("--")
         ):
             i += 1
             continue
@@ -1010,7 +1052,10 @@ def _safe_sed_script(script: str) -> tuple[bool, str]:
         if cmd == "e":
             return False, "sed e executes a shell command"
         if cmd in {"{", "}", ":", "b", "t", "T"}:
-            return False, f"sed control-flow command is outside the supported subset: {cmd}"
+            return (
+                False,
+                f"sed control-flow command is outside the supported subset: {cmd}",
+            )
 
         if cmd == "s":
             if i >= n or script[i] in "\n\\":
@@ -1258,7 +1303,11 @@ def _consume_git_global_options(argv: Sequence[str]) -> tuple[int | None, str | 
                 return None, f"git global option requires a value: {arg}"
             i += 2
             continue
-        if any(arg.startswith(name + "=") for name in value_options if name.startswith("--")):
+        if any(
+            arg.startswith(name + "=")
+            for name in value_options
+            if name.startswith("--")
+        ):
             i += 1
             continue
         if arg in safe_flags:
@@ -1266,9 +1315,13 @@ def _consume_git_global_options(argv: Sequence[str]) -> tuple[int | None, str | 
             continue
         if arg == "--version":
             return -1, None
-        if arg in {"-c", "--config-env", "--exec-path", "-p", "--paginate"} or arg.startswith(
-            ("-c=", "--config-env=", "--exec-path=")
-        ):
+        if arg in {
+            "-c",
+            "--config-env",
+            "--exec-path",
+            "-p",
+            "--paginate",
+        } or arg.startswith(("-c=", "--config-env=", "--exec-path=")):
             return None, f"git global option can alter execution: {arg}"
         if arg.startswith("-"):
             return None, f"unsupported git global option: {arg}"
@@ -1408,7 +1461,9 @@ def _git_tag_read_only(args: Sequence[str]) -> Result:
         "--verify",
     }
     for arg in args:
-        if arg in mutating or arg.startswith(("--local-user=", "--file=", "--cleanup=")):
+        if arg in mutating or arg.startswith(
+            ("--local-user=", "--file=", "--cleanup=")
+        ):
             return ask("git tag mutation or external verification")
         if (
             arg.startswith("-")
@@ -1523,7 +1578,11 @@ def _git_config_read_only(args: Sequence[str]) -> Result:
                 return ask(f"git config option requires a value: {arg}")
             i += 2
             continue
-        if any(arg.startswith(name + "=") for name in value_options if name.startswith("--")):
+        if any(
+            arg.startswith(name + "=")
+            for name in value_options
+            if name.startswith("--")
+        ):
             i += 1
             continue
         if arg in flags:
@@ -1594,8 +1653,7 @@ def _classify_git(
         or "--no-optional-locks" in global_args
     )
     lazy_fetch_disabled = (
-        effective_env("GIT_NO_LAZY_FETCH") == "1"
-        or "--no-lazy-fetch" in global_args
+        effective_env("GIT_NO_LAZY_FETCH") == "1" or "--no-lazy-fetch" in global_args
     )
     if "GIT_PAGER" in effective_environment or "GIT_PAGER" in os.environ:
         pager_value = effective_env("GIT_PAGER")
@@ -1654,7 +1712,10 @@ def _classify_git(
         needs_textconv_guard = (
             subcommand == "diff"
             or (subcommand == "show" and not _git_show_is_blob_read(args))
-            or (subcommand in {"log", "whatchanged"} and _git_patch_output_requested(args))
+            or (
+                subcommand in {"log", "whatchanged"}
+                and _git_patch_output_requested(args)
+            )
         )
         if needs_textconv_guard and "--no-ext-diff" not in args:
             return ask(
@@ -1669,7 +1730,9 @@ def _classify_git(
         return allow(f"git {subcommand} read")
     if subcommand == "for-each-ref":
         if _git_format_invokes_signature_helper(args):
-            return ask("git for-each-ref format may invoke signature verification helpers")
+            return ask(
+                "git for-each-ref format may invoke signature verification helpers"
+            )
         return allow("git for-each-ref read")
     if subcommand == "branch":
         return _git_branch_read_only(args)
@@ -1680,11 +1743,20 @@ def _classify_git(
     if subcommand == "remote":
         if not args or args == ["-v"] or args == ["--verbose"]:
             return allow("git remote listing")
-        if args and args[0] == "get-url" and not any(
-            arg.startswith("-") and arg not in {"--all", "--push"} for arg in args[1:]
+        if (
+            args
+            and args[0] == "get-url"
+            and not any(
+                arg.startswith("-") and arg not in {"--all", "--push"}
+                for arg in args[1:]
+            )
         ):
             return allow("git remote URL lookup")
-        if args and args[0] == "show" and any(arg in {"-n", "--no-query"} for arg in args[1:]):
+        if (
+            args
+            and args[0] == "show"
+            and any(arg in {"-n", "--no-query"} for arg in args[1:])
+        ):
             return allow("git remote local-only show")
         return ask("git remote operation is not a proven local read")
     if subcommand == "stash":
@@ -1695,7 +1767,9 @@ def _classify_git(
                         "git stash show may execute external diff helpers; add --no-ext-diff"
                     )
                 if "--no-textconv" not in args[1:]:
-                    return ask("git stash show may execute textconv filters; add --no-textconv")
+                    return ask(
+                        "git stash show may execute textconv filters; add --no-textconv"
+                    )
             return allow(f"git stash {args[0]} read")
         return ask("git stash operation may modify the stash")
     if subcommand == "worktree":
@@ -1711,7 +1785,9 @@ def _classify_git(
                         "git reflog show may execute external diff helpers; add --no-ext-diff"
                     )
                 if "--no-textconv" not in show_args:
-                    return ask("git reflog show may execute textconv filters; add --no-textconv")
+                    return ask(
+                        "git reflog show may execute textconv filters; add --no-textconv"
+                    )
             return allow("git reflog read")
         return ask("git reflog operation may modify reflogs")
     if subcommand == "notes":
@@ -1728,7 +1804,7 @@ def _classify_git(
 def _parse_tar_short_bundle(arg: str) -> tuple[bool, set[str], str | None]:
     """Parse the deliberately small tar short-option subset used for listing."""
 
-    bundle = arg[1:] if arg.startswith("-") else arg
+    bundle = arg.removeprefix("-")
     if not bundle:
         return False, set(), "empty tar option bundle"
     safe_letters = set("tvzjJZfC")
@@ -1741,15 +1817,18 @@ def _parse_tar_short_bundle(arg: str) -> tuple[bool, set[str], str | None]:
         if letter in write_letters:
             return False, compression, f"tar mode can modify files or archives: {arg}"
         if letter not in safe_letters:
-            return False, compression, f"unsupported tar short option in list mode: -{letter}"
+            return (
+                False,
+                compression,
+                f"unsupported tar short option in list mode: -{letter}",
+            )
         if letter == "t":
             found_list = True
         elif letter in {"z", "j", "J", "Z"}:
             compression.add(letter)
-        elif letter in {"f", "C"}:
+        elif letter in {"f", "C"} and i + 1 < len(bundle):
             # Attached remainder is the option value, not more option letters.
-            if i + 1 < len(bundle):
-                break
+            break
         i += 1
     return found_list, compression, None
 
@@ -1780,11 +1859,11 @@ def _tar_archive_paths(args: Sequence[str]) -> tuple[list[str], bool, str | None
             i += 1
             continue
 
-        is_old_style_bundle = i == 0 and not arg.startswith("-") and bool(
-            re.fullmatch(r"[A-Za-z]+", arg)
+        is_old_style_bundle = (
+            i == 0 and not arg.startswith("-") and bool(re.fullmatch(r"[A-Za-z]+", arg))
         )
         if arg.startswith("-") or is_old_style_bundle:
-            bundle = arg[1:] if arg.startswith("-") else arg
+            bundle = arg.removeprefix("-")
             if "f" in bundle:
                 index = bundle.index("f")
                 attached = bundle[index + 1 :]
@@ -1801,7 +1880,9 @@ def _tar_archive_paths(args: Sequence[str]) -> tuple[list[str], bool, str | None
     return archives, force_local, None
 
 
-def _verify_tar_compression_helpers(compression: set[str], config: Config) -> Result | None:
+def _verify_tar_compression_helpers(
+    compression: set[str], config: Config
+) -> Result | None:
     helper_names = {
         "z": ("gzip", ("GZIP",)),
         "j": ("bzip2", ("BZIP2", "BZIP")),
@@ -1817,7 +1898,9 @@ def _verify_tar_compression_helpers(compression: set[str], config: Config) -> Re
         if config.verify_ambient_environment:
             for name in option_envs:
                 if os.environ.get(name):
-                    return ask(f"ambient {name} can inject options into tar helper {helper}")
+                    return ask(
+                        f"ambient {name} can inject options into tar helper {helper}"
+                    )
     return None
 
 
@@ -1980,6 +2063,7 @@ def _classify_tar(argv: Sequence[str], config: Config) -> Result:
         return helper_issue
     return allow("tar archive listing")
 
+
 def _classify_compressor(argv: Sequence[str]) -> Result:
     command = os.path.basename(argv[0])
     args = argv[1:]
@@ -1992,7 +2076,8 @@ def _classify_compressor(argv: Sequence[str]) -> Result:
 
     alias_stdout_mode = command in ZCAT_COMMANDS
     safe_mode = alias_stdout_mode or any(
-        arg in {
+        arg
+        in {
             "-c",
             "--stdout",
             "--to-stdout",
@@ -2017,8 +2102,23 @@ def _classify_unzip(argv: Sequence[str]) -> Result:
     safe_letters = set("lvtpZ")
     saw_safe_mode = False
     for arg in argv[1:]:
-        if arg in {"-d", "-o", "-n", "-B", "-j", "-J", "-K", "-L", "-M", "-U", "-V", "-X"}:
-            return ask(f"unzip option is associated with extraction or filesystem changes: {arg}")
+        if arg in {
+            "-d",
+            "-o",
+            "-n",
+            "-B",
+            "-j",
+            "-J",
+            "-K",
+            "-L",
+            "-M",
+            "-U",
+            "-V",
+            "-X",
+        }:
+            return ask(
+                f"unzip option is associated with extraction or filesystem changes: {arg}"
+            )
         if arg.startswith("-") and not arg.startswith("--"):
             letters = set(arg[1:])
             if letters & safe_letters:
@@ -2037,7 +2137,20 @@ def _classify_sysctl(argv: Sequence[str]) -> Result:
     dangerous = _has_long_option_or_abbreviation(args, "--write", "--load", "--system")
     if dangerous:
         return ask(f"sysctl option can change kernel settings: {dangerous}")
-    safe_short = {"-a", "-A", "-b", "-d", "-e", "-i", "-n", "-N", "-o", "-q", "-r", "-x"}
+    safe_short = {
+        "-a",
+        "-A",
+        "-b",
+        "-d",
+        "-e",
+        "-i",
+        "-n",
+        "-N",
+        "-o",
+        "-q",
+        "-r",
+        "-x",
+    }
     safe_long_flags = {
         "--all",
         "--binary",
@@ -2083,15 +2196,30 @@ def _classify_date(argv: Sequence[str]) -> Result:
     for arg in args:
         if arg == "-s" or (arg.startswith("-s") and not arg.startswith("--")):
             return ask("date -s changes the system clock")
-        if not no_set and not arg.startswith("-") and not arg.startswith("+"):
-            # BSD date accepts a compact numeric operand as a new system date.
-            if re.fullmatch(r"[0-9]{4,14}(?:\.[0-9]{2})?", arg):
-                return ask("numeric date operand may set the system clock on BSD/macOS")
+        # BSD date accepts a compact numeric operand as a new system date.
+        if (
+            not no_set
+            and not arg.startswith(("-", "+"))
+            and re.fullmatch(r"[0-9]{4,14}(?:\.[0-9]{2})?", arg)
+        ):
+            return ask("numeric date operand may set the system clock on BSD/macOS")
     return allow("date query or formatting")
 
 
 def _classify_hostname(argv: Sequence[str]) -> Result:
-    query_flags = {"-a", "-A", "-d", "-f", "-i", "-I", "-s", "-y", "--fqdn", "--long", "--short"}
+    query_flags = {
+        "-a",
+        "-A",
+        "-d",
+        "-f",
+        "-i",
+        "-I",
+        "-s",
+        "-y",
+        "--fqdn",
+        "--long",
+        "--short",
+    }
     positionals = [arg for arg in argv[1:] if not arg.startswith("-")]
     if positionals:
         return ask("hostname positional argument may change the host name")
@@ -2117,7 +2245,9 @@ def _classify_file(argv: Sequence[str]) -> Result:
         if arg == "-C" or _short_cluster_contains(arg, "C"):
             return ask("file -C writes a compiled magic database")
         if arg in {"-z", "-Z", "-S"} or _short_cluster_contains(arg, "zZS"):
-            return ask("file decompression/sandbox options may execute external helpers")
+            return ask(
+                "file decompression/sandbox options may execute external helpers"
+            )
     return allow("file type inspection")
 
 
@@ -2134,7 +2264,9 @@ def _classify_tree(argv: Sequence[str]) -> Result:
 def _classify_binutils(argv: Sequence[str]) -> Result:
     dangerous = _has_long_option_or_abbreviation(argv[1:], "--plugin")
     if dangerous:
-        return ask(f"{os.path.basename(argv[0])} plugin option loads executable code: {dangerous}")
+        return ask(
+            f"{os.path.basename(argv[0])} plugin option loads executable code: {dangerous}"
+        )
     return allow(f"{os.path.basename(argv[0])} binary inspection")
 
 
@@ -2233,10 +2365,8 @@ def _ambient_environment_issue(
                 return f"ambient {name} can alter Git execution, configuration, or write targets"
         for name, ambient_value in env.items():
             value = overrides.get(name, ambient_value)
-            if value and (
-                name.startswith("GIT_TRACE")
-                or name.startswith("GIT_CONFIG_KEY_")
-                or name.startswith("GIT_CONFIG_VALUE_")
+            if value and name.startswith(
+                ("GIT_TRACE", "GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")
             ):
                 return f"ambient {name} can alter Git behavior or write trace output"
         if "GIT_PAGER" in overrides or "GIT_PAGER" in os.environ:
@@ -2256,14 +2386,20 @@ def _ambient_environment_issue(
 
     if command in GREP_COMMANDS and env_value("GREP_OPTIONS"):
         return "ambient GREP_OPTIONS can inject command options"
-    if command == "rg" and env_value("RIPGREP_CONFIG_PATH") and "--no-config" not in argv[1:]:
+    if (
+        command == "rg"
+        and env_value("RIPGREP_CONFIG_PATH")
+        and "--no-config" not in argv[1:]
+    ):
         return "ambient RIPGREP_CONFIG_PATH can inject helper-executing options; use --no-config"
     if command == "tar":
         if env_value("TAR_OPTIONS"):
             return "ambient TAR_OPTIONS can inject write or helper-executing options"
         for name in ("TAPE", "TAR_RSH", "RSH"):
             if env_value(name):
-                return f"ambient {name} can select a remote archive or remote-shell helper"
+                return (
+                    f"ambient {name} can select a remote archive or remote-shell helper"
+                )
     if command in {"gzip", "gunzip", "zcat"} and env_value("GZIP"):
         return "ambient GZIP can inject compressor options"
     if command in {"bzip2", "bunzip2", "bzcat"} and (
@@ -2283,6 +2419,7 @@ def _ambient_environment_issue(
             if env_value(name):
                 return f"ambient {name} can trigger debuginfod network/cache activity"
     return None
+
 
 def _classify_argv(argv: Sequence[str], config: Config) -> Result:
     if not argv:
@@ -2354,16 +2491,20 @@ def _classify_argv(argv: Sequence[str], config: Config) -> Result:
         result = _classify_git(argv, inline_environment)
     elif command == "tar":
         result = _classify_tar(argv, config)
-    elif command in {
-        "gzip",
-        "gunzip",
-        "bzip2",
-        "bunzip2",
-        "xz",
-        "unxz",
-        "lzma",
-        "unlzma",
-    } or command in ZCAT_COMMANDS:
+    elif (
+        command
+        in {
+            "gzip",
+            "gunzip",
+            "bzip2",
+            "bunzip2",
+            "xz",
+            "unxz",
+            "lzma",
+            "unlzma",
+        }
+        or command in ZCAT_COMMANDS
+    ):
         result = _classify_compressor(argv)
     elif command == "zipinfo":
         result = allow(f"{command} read to standard output")
@@ -2415,6 +2556,13 @@ def _emit_allow() -> None:
 
 
 def _hook_main(config: Config) -> int:
+    if os.name == "nt":
+        # Native Windows Codex agents execute PowerShell, while this classifier
+        # models POSIX shell syntax. Parsing PowerShell as POSIX could turn
+        # escaped control operators into apparently harmless literal arguments,
+        # so the hook must remain silent and defer to normal approval.
+        return 0
+
     try:
         payload = json.load(sys.stdin)
         if not isinstance(payload, dict):
@@ -2433,7 +2581,7 @@ def _hook_main(config: Config) -> int:
         result = classify(command, config)
         if result.verdict is Verdict.ALLOW:
             _emit_allow()
-    except Exception:
+    except Exception:  # noqa: BLE001 -- the security boundary must fail closed.
         # Permission hooks must fail closed: no output means normal human review.
         return 0
     return 0
@@ -2441,7 +2589,9 @@ def _hook_main(config: Config) -> int:
 
 def _cli_main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument(
+        "--version", action="version", version=f"%(prog)s {__version__}"
+    )
     parser.add_argument(
         "--check",
         metavar="COMMAND",
@@ -2454,9 +2604,13 @@ def _cli_main(argv: Sequence[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    if os.name == "nt" and args.check is not None:
+        print(f"ASK: {_NATIVE_WINDOWS_UNSUPPORTED_REASON}")
+        return 1
+
     try:
         config = load_config()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 -- invalid config must fail closed.
         if args.check is not None:
             print(f"ASK: invalid configuration: {exc}")
             return 1

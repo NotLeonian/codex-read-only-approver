@@ -25,6 +25,7 @@ codex -s danger-full-access -a untrusted -c approvals_reviewer=user --search
 - `/dev/null` への破棄を除き、出力リダイレクトを承認しない
 - コマンド置換、プロセス置換、引用符で囲まれていない glob やブレースの展開、heredoc、バックグラウンド実行、グループ化、未知のシェル構文を承認しない
 - 既定で実行ファイルの実体が信頼済みのインストール先にあるか確認する
+- 実行ファイルの確認が有効な場合は、認識可能なネイティブ ELF または Mach-O だけを自動承認し、インタープリターで動くラッパースクリプトは人間による承認へ回す
 - `sed`、`git`、`find`、`fd`、`rg`、`uniq`、`base64`、`yq`、`tar`、各種圧縮コマンド、`unzip`、`sysctl`、`date`、`hostname`、`file`、`tree`、`nm`、`objdump` を引数も含めて判定する
 - 書き込み可能または曖昧なコマンドでは何も出力せず、通常どおり人間による承認を求める
 - 自動的な拒否は行わないため、分類器が理解しない操作でも人間が承認できる
@@ -122,6 +123,8 @@ hook は次の順序で設定を読み込みます。
 ```
 
 通常、`verify_executable_paths` と `verify_ambient_environment` は `true` のままにします。
+実行ファイルの確認では、信頼済みルート内であっても、shebang 付きまたはその他のテキスト実行ファイルを意図的に自動承認しません。
+外側のコマンドだけからは、そのインタープリターや推移的に実行されるヘルパーを証明できないためです。
 後者では `GIT_EXTERNAL_DIFF`、`RIPGREP_CONFIG_PATH`（`rg --no-config` の使用時を除く）、`TAR_OPTIONS`、圧縮・展開コマンド用のオプション環境変数などを検出します。
 
 ### Git の追加条件

@@ -302,6 +302,70 @@ def _resolve_executable_path(command_word: str) -> Path | None:
     return real
 
 
+def _is_native_executable(path: Path) -> bool | None:
+    """Return whether *path* has a native executable format for this OS."""
+
+    try:
+        with path.open("rb") as handle:
+            magic = handle.read(4)
+    except OSError:
+        return None
+    if sys.platform == "darwin":
+        return magic in {
+            b"\xfe\xed\xfa\xce",
+            b"\xce\xfa\xed\xfe",
+            b"\xfe\xed\xfa\xcf",
+            b"\xcf\xfa\xed\xfe",
+            b"\xca\xfe\xba\xbe",
+            b"\xbe\xba\xfe\xca",
+            b"\xca\xfe\xba\xbf",
+            b"\xbf\xba\xfe\xca",
+        }
+    if os.name == "posix":
+        return magic == b"\x7fELF"
+    return False
+
+
+def _shebang_interpreter(path: Path) -> str | None:
+    """Return the interpreter basename selected by an executable shebang."""
+
+    try:
+        with path.open("rb") as handle:
+            first_line = handle.readline(1024)
+    except OSError:
+        return None
+    if not first_line.startswith(b"#!"):
+        return None
+    try:
+        words = shlex.split(first_line[2:].decode("utf-8", errors="replace").strip())
+    except ValueError:
+        return None
+    if not words:
+        return None
+
+    interpreter = os.path.basename(words[0])
+    if interpreter != "env":
+        return interpreter
+
+    args = words[1:]
+    i = 0
+    while i < len(args):
+        token = args[i]
+        if token == "-S":
+            i += 1
+            break
+        if token in {"-u", "--unset"}:
+            i += 2
+            continue
+        if token.startswith("-") or _ASSIGNMENT_RE.fullmatch(token):
+            i += 1
+            continue
+        break
+    if i >= len(args):
+        return None
+    return os.path.basename(args[i])
+
+
 def _trusted_executable(command_word: str, config: Config) -> tuple[bool, str]:
     name = os.path.basename(command_word)
     if name in SHELL_BUILTINS and "/" not in command_word:
@@ -315,6 +379,17 @@ def _trusted_executable(command_word: str, config: Config) -> tuple[bool, str]:
     if real is None:
         return False, f"executable not found or not executable: {command_word}"
     if any(_is_under(real, root) for root in config.trusted_executable_roots):
+        native = _is_native_executable(real)
+        if native is None:
+            return False, f"executable could not be inspected safely: {real}"
+        if not native:
+            return (
+                False,
+                (
+                    "executable is not a recognized native binary; interpreted "
+                    f"wrappers may launch unverifiable transitive helpers: {real}"
+                ),
+            )
         return True, str(real)
     return False, f"executable is outside trusted roots: {real}"
 
@@ -335,39 +410,9 @@ def _normalize_shebang_runtime(name: str) -> str | None:
 def _shebang_runtime(path: Path) -> str | None:
     """Return a supported interpreter family for an executable script."""
 
-    try:
-        with path.open("rb") as handle:
-            first_line = handle.readline(1024)
-    except OSError:
+    interpreter = _shebang_interpreter(path)
+    if interpreter is None:
         return None
-    if not first_line.startswith(b"#!"):
-        return None
-    try:
-        words = shlex.split(first_line[2:].decode("utf-8", errors="replace").strip())
-    except ValueError:
-        return None
-    if not words:
-        return None
-
-    interpreter = os.path.basename(words[0])
-    if interpreter == "env":
-        args = words[1:]
-        i = 0
-        while i < len(args):
-            token = args[i]
-            if token == "-S":
-                i += 1
-                break
-            if token in {"-u", "--unset"}:
-                i += 2
-                continue
-            if token.startswith("-") or _ASSIGNMENT_RE.fullmatch(token):
-                i += 1
-                continue
-            break
-        if i >= len(args):
-            return None
-        interpreter = os.path.basename(args[i])
     return _normalize_shebang_runtime(interpreter)
 
 
@@ -761,7 +806,10 @@ def _classify_diff(argv: Sequence[str]) -> Result:
     dangerous = _has_long_option_or_abbreviation(argv[1:], "--diff-program")
     if dangerous:
         return ask(f"diff3 option executes an external program: {dangerous}")
-    return allow("diff3 comparison to standard output")
+    # GNU diff3 always launches a build-time-selected diff program through
+    # PATH. The helper name can itself be transformed at build time, so it
+    # cannot be inferred reliably from argv or validated here.
+    return ask("diff3 executes a default external diff helper")
 
 
 def _classify_timeout(argv: Sequence[str], config: Config) -> Result:
@@ -2064,6 +2112,75 @@ def _classify_tar(argv: Sequence[str], config: Config) -> Result:
     return allow("tar archive listing")
 
 
+def _compressor_has_safe_mode(command: str, args: Sequence[str]) -> bool:
+    """Recognize a safe mode only in an unambiguous leading option prefix."""
+
+    if command in ZCAT_COMMANDS:
+        return True
+
+    if command in {"gzip", "gunzip"}:
+        safe_action_short = set("tl")
+        unsafe_action_short = set("d")
+        prefix_short = set("afhkLnNqrvV123456789")
+        safe_action_long = {"--test", "--list"}
+        unsafe_action_long = {"--decompress", "--uncompress"}
+    elif command in {"bzip2", "bunzip2"}:
+        safe_action_short = set("t")
+        unsafe_action_short = set("dz")
+        prefix_short = set("fhkLqsvV123456789")
+        safe_action_long = {"--test"}
+        unsafe_action_long = {"--compress", "--decompress"}
+    else:
+        safe_action_short = set("tl")
+        unsafe_action_short = set("dz")
+        prefix_short = set("efhHkqvV0123456789")
+        safe_action_long = {"--test", "--list"}
+        unsafe_action_long = {"--compress", "--decompress"}
+
+    stdout_mode = False
+    safe_action = False
+    for index, arg in enumerate(args):
+        # Operands and option termination end the only region whose parsing is
+        # invariant under POSIXLY_CORRECT and the supported implementations.
+        if arg == "--":
+            break
+        if arg == "-" or not arg.startswith("-"):
+            # GNU option permutation can interpret a later "-d" or "-z" as a
+            # mode override, while POSIXLY_CORRECT treats it as a filename.
+            # Refuse that environment-dependent ordering.
+            trailing_options = iter(args[index + 1 :])
+            for trailing in trailing_options:
+                if trailing == "--":
+                    break
+                if trailing.startswith("-") and trailing != "-":
+                    return False
+            break
+        if arg.startswith("--"):
+            # Unknown and argument-taking long options are deliberately not
+            # skipped: a following "-c", "-t", or "-l" may be their value.
+            if arg in {"--stdout", "--to-stdout"}:
+                stdout_mode = True
+            elif arg in safe_action_long:
+                safe_action = True
+            elif arg in unsafe_action_long:
+                safe_action = False
+            else:
+                return False
+            continue
+        for letter in arg[1:]:
+            if letter == "c":
+                stdout_mode = True
+            elif letter in safe_action_short:
+                safe_action = True
+            elif letter in unsafe_action_short:
+                safe_action = False
+            elif letter not in prefix_short:
+                # For example, gzip -S -c and xz -Flzma: the remainder or
+                # following word is an option value, not another mode option.
+                return False
+    return stdout_mode or safe_action
+
+
 def _classify_compressor(argv: Sequence[str]) -> Result:
     command = os.path.basename(argv[0])
     args = argv[1:]
@@ -2074,57 +2191,35 @@ def _classify_compressor(argv: Sequence[str]) -> Result:
         if arg == "-o" or _short_cluster_contains(arg, "o"):
             return ask(f"{command} output option may write a named file: {arg}")
 
-    alias_stdout_mode = command in ZCAT_COMMANDS
-    safe_mode = alias_stdout_mode or any(
-        arg
-        in {
-            "-c",
-            "--stdout",
-            "--to-stdout",
-            "-t",
-            "--test",
-            "-l",
-            "--list",
-        }
-        or (
-            arg.startswith("-")
-            and not arg.startswith("--")
-            and any(ch in arg[1:] for ch in "ctl")
-        )
-        for arg in args
-    )
-    if safe_mode:
+    if _compressor_has_safe_mode(command, args):
         return allow(f"{command} output/test/list mode")
     return ask(f"{command} may replace or create files without stdout/test mode")
 
 
 def _classify_unzip(argv: Sequence[str]) -> Result:
-    safe_letters = set("lvtpZ")
+    safe_letters = set("clptvzZ")
     saw_safe_mode = False
+    before_archive = True
     for arg in argv[1:]:
-        if arg in {
-            "-d",
-            "-o",
-            "-n",
-            "-B",
-            "-j",
-            "-J",
-            "-K",
-            "-L",
-            "-M",
-            "-U",
-            "-V",
-            "-X",
-        }:
-            return ask(
-                f"unzip option is associated with extraction or filesystem changes: {arg}"
-            )
-        if arg.startswith("-") and not arg.startswith("--"):
-            letters = set(arg[1:])
-            if letters & safe_letters:
-                saw_safe_mode = True
-            if letters - safe_letters - set("q"):
-                return ask(f"unsupported unzip option cluster: {arg}")
+        if not before_archive:
+            continue
+        # Info-ZIP uses "--" as an option-negation toggle in positions where
+        # conventional parsers use it as a terminator. It can cancel an earlier
+        # list/stdout mode, so its meaning is not safe to infer.
+        if arg == "--":
+            return ask("unzip -- has ambiguous mode-negation semantics")
+        if arg == "-":
+            return ask("unzip lone - has ambiguous option semantics")
+        if not arg.startswith("-"):
+            before_archive = False
+            continue
+        if arg.startswith("--"):
+            return ask(f"unsupported unzip option: {arg}")
+        letters = set(arg[1:])
+        if letters & safe_letters:
+            saw_safe_mode = True
+        if letters - safe_letters - set("q"):
+            return ask(f"unsupported unzip option cluster: {arg}")
     return (
         allow("unzip listing/test/stdout mode")
         if saw_safe_mode
@@ -2188,21 +2283,79 @@ def _classify_sysctl(argv: Sequence[str]) -> Result:
 
 
 def _classify_date(argv: Sequence[str]) -> Result:
-    args = argv[1:]
-    dangerous = _has_long_option_or_abbreviation(args, "--set")
-    if dangerous:
-        return ask(f"date option changes the system clock: {dangerous}")
-    no_set = "-j" in args  # BSD/macOS: parse without setting the clock.
-    for arg in args:
-        if arg == "-s" or (arg.startswith("-s") and not arg.startswith("--")):
-            return ask("date -s changes the system clock")
-        # BSD date accepts a compact numeric operand as a new system date.
-        if (
-            not no_set
-            and not arg.startswith(("-", "+"))
-            and re.fullmatch(r"[0-9]{4,14}(?:\.[0-9]{2})?", arg)
-        ):
-            return ask("numeric date operand may set the system clock on BSD/macOS")
+    args = list(argv[1:])
+    no_set = False
+    i = 0
+    long_value_options = {"--date", "--file", "--reference", "--rfc-3339"}
+    long_flags = {
+        "--debug",
+        "--help",
+        "--resolution",
+        "--rfc-email",
+        "--universal",
+        "--utc",
+        "--version",
+    }
+    short_value_options = set("dfrvz")
+    short_flags = set("jnRu")
+
+    while i < len(args):
+        arg = args[i]
+        if arg == "--":
+            i += 1
+            break
+        if arg == "-" or not arg.startswith("-"):
+            break
+        if arg.startswith("--"):
+            if _is_long_option_or_abbreviation(arg, "--set"):
+                return ask(f"date option changes the system clock: {arg}")
+            name = _long_option_name(arg)
+            if name in long_value_options:
+                if "=" not in arg:
+                    if i + 1 >= len(args):
+                        return ask(f"date option requires a value: {arg}")
+                    i += 1
+                elif not arg.split("=", 1)[1]:
+                    return ask(f"date option has an empty value: {arg}")
+            elif name == "--iso-8601":
+                pass
+            elif arg not in long_flags:
+                return ask(f"unsupported date option: {arg}")
+            i += 1
+            continue
+
+        bundle = arg[1:]
+        position = 0
+        while position < len(bundle):
+            letter = bundle[position]
+            if letter == "s":
+                return ask("date -s changes the system clock")
+            if letter == "j":
+                no_set = True
+                position += 1
+                continue
+            if letter in short_flags:
+                position += 1
+                continue
+            if letter == "I":
+                # BSD/GNU -I has an optional attached output precision.
+                break
+            if letter in short_value_options:
+                if position + 1 == len(bundle):
+                    if i + 1 >= len(args):
+                        return ask(f"date option requires a value: -{letter}")
+                    i += 1
+                # An attached remainder or the next argv word is the value.
+                break
+            return ask(f"unsupported date option: -{letter}")
+        i += 1
+
+    # On BSD/macOS every non-format operand can be a clock-setting operand,
+    # including the two-digit minutes form and arbitrary input accepted by -f.
+    # Only an -j parsed as a real option (not an option value or trailing word)
+    # proves that those operands will be parsed without setting the clock.
+    if not no_set and any(not arg.startswith("+") for arg in args[i:]):
+        return ask("date operand may set the system clock on BSD/macOS")
     return allow("date query or formatting")
 
 

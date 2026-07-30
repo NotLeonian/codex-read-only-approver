@@ -24,6 +24,7 @@ The hook:
 - rejects output redirection except output discarded to `/dev/null`;
 - rejects command substitution, process substitution, unquoted glob/brace expansion, heredocs, backgrounding, grouping, and unknown shell syntax;
 - verifies executable paths against trusted installation roots by default;
+- requires a recognized native ELF or Mach-O executable when path verification is enabled, leaving interpreted wrapper scripts for human approval;
 - handles argument-sensitive commands including `sed`, `git`, `find`, `fd`, `rg`, `uniq`, `base64`, `yq`, `tar`, compressors, `unzip`, `sysctl`, `date`, `hostname`, `file`, `tree`, `nm`, and `objdump`;
 - remains silent for a write-capable or ambiguous command, preserving the normal human approval flow;
 - never returns an automatic denial.
@@ -122,6 +123,7 @@ Start from [`config.json.example`](config.json.example).
 ```
 
 `verify_executable_paths` and `verify_ambient_environment` should normally remain `true`.
+Path verification deliberately does not auto-approve shebang or other text executables, even inside a trusted root, because their interpreter and transitive helper execution cannot be proven from the outer command.
 Ambient checks reject option-injecting variables such as `GIT_EXTERNAL_DIFF`, `RIPGREP_CONFIG_PATH` (unless `rg --no-config` is used), `TAR_OPTIONS`, and compressor/archive option variables.
 
 ### Additional Git conditions

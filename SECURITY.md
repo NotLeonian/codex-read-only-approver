@@ -13,7 +13,8 @@ For commands that reach Codex `PermissionRequest`, the hook attempts to ensure t
 - unquoted glob or brace expansion that could inject option-looking filenames;
 - known command options that execute helpers, editors, pagers, plugins, or subprocesses;
 - known write, delete, configuration mutation, archive extraction, or system-setting operations;
-- executables outside configured trusted installation roots.
+- executables outside configured trusted installation roots; and
+- interpreted or unrecognized executable formats, whose transitive interpreter and helper execution cannot be verified.
 
 Pipelines and command chains are approved only when every parsed segment is approved.
 

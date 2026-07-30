@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -93,7 +94,6 @@ ALLOW_CASES = {
     "uniq stdout": "uniq -c names.txt",
     "printf stdout": "printf '%s\n' hello",
     "diff stdout": "diff -u before.txt after.txt",
-    "diff3 stdout": "diff3 mine.txt base.txt theirs.txt",
     "base64 stdout": "base64 input.bin",
     "base64 decode stdout": "base64 -d input.b64",
     "jq": "jq -r '.items[]?.name' data.json",
@@ -104,15 +104,25 @@ ALLOW_CASES = {
     "tar list alphabetic archive": "tar -tf archive",
     "tar compressed list": "tar -ztf archive.tar.gz",
     "gzip stdout": "gzip -dc archive.gz",
+    "gzip split stdout": "gzip -v -c archive.gz",
     "gunzip test": "gunzip -t archive.gz",
+    "bzip2 final test mode": "bzip2 -z -t archive.bz2",
+    "xz final test mode": "xz -d -t archive.xz",
     "zcat": "zcat archive.gz | head",
     "unzip list": "unzip -l archive.zip",
+    "unzip quiet list": "unzip -ql archive.zip",
     "unzip stdout": "unzip -p archive.zip README.md | head",
+    "unzip stdout with names": "unzip -c archive.zip README.md | head",
+    "unzip archive comment": "unzip -z archive.zip",
+    "unzip list with dash-named member": "unzip -l archive.zip -- -l",
     "sysctl read": "sysctl kern.ostype",
     "sysctl all": "sysctl --all",
     "date format": "date +%Y-%m-%d",
     "date UTC": "date --utc +%Y-%m-%d",
     "date BSD no-set parse": "date -j 01010000 +%Y-%m-%d",
+    "date BSD clustered no-set parse": "date -ju 30 +%M",
+    "date reference operand": "date -r 30 +%s",
+    "date BSD formatted no-set parse": "date -j -f %b Jul +%b",
     "hostname query": "hostname -s",
     "file inspect": "file README.md",
     "file brief": "file --brief README.md",
@@ -217,6 +227,7 @@ ASK_CASES = {
     "printf n conversion": "printf '%n' PATH",
     "printf positional n conversion": "printf '%1$n' PATH",
     "diff pager": "diff --paginate before.txt after.txt",
+    "diff3 default helper": "diff3 mine.txt base.txt theirs.txt",
     "diff3 external program": "diff3 --diff-program=evil mine base theirs",
     "sort may spill temporary files": "sort -u names.txt",
     "sort output": "sort -o sorted.txt input.txt",
@@ -243,9 +254,27 @@ ASK_CASES = {
     "tar remote archive": "tar -tf host:/srv/archive.tar",
     "gzip replace": "gzip file.txt",
     "gzip named output": "gzip -cooutput.gz file.txt",
+    "gzip option terminator before stdout-looking file": "gzip -- -c victim",
+    "bzip2 option terminator before stdout-looking file": "bzip2 -- -c victim",
+    "xz option terminator before list-looking file": "xz -- -l victim",
+    "gzip suffix value resembling stdout option": "gzip -S -c victim",
+    "gzip attached suffix containing safe letter": "gzip -S.c victim",
+    "xz attached format containing safe letter": "xz -Flzma victim",
+    "gzip safe-looking option after operand": "gzip victim -c",
+    "xz test mode overridden by decompression": "xz -t -d archive.xz",
+    "xz trailing mode override after operand": "xz -t archive.xz -d",
+    "bzip2 test mode overridden by compression": "bzip2 -t -z archive.bz2",
+    "bzip2 clustered test mode overridden": "bzip2 -tz archive.bz2",
+    "bzip2 long test mode overridden": ("bzip2 --test --compress archive.bz2"),
+    "xz list mode overridden by decompression": "xz -l -d archive.xz",
     "zcat named output": "zcat -ooutput.txt archive.gz",
     "gunzip extract": "gunzip archive.gz",
     "unzip extract default": "unzip archive.zip",
+    "unzip member resembling list option": "unzip archive.zip -l",
+    "unzip terminated member resembling list option": "unzip archive.zip -- -l",
+    "unzip ambiguous leading double dash": "unzip -- -l archive.zip",
+    "unzip double dash cancels list mode": "unzip -l -- -l archive.zip",
+    "unzip lone dash permits later mode negation": "unzip -l - --l archive.zip",
     "sysctl write": "sysctl -w kern.maxfiles=10000",
     "sysctl load": "sysctl -p /etc/sysctl.conf",
     "sysctl abbreviated load": "sysctl --loa /etc/sysctl.conf",
@@ -254,6 +283,11 @@ ASK_CASES = {
     "date GNU attached set": "date -stomorrow",
     "date GNU abbreviated set": "date --se=tomorrow",
     "date BSD set": "date 01010000",
+    "date BSD two-digit set": "date 30",
+    "date trailing no-set option": "date 30 -j",
+    "date terminated BSD set": "date -- 30",
+    "date BSD formatted set": "date -f %b Jul +%b",
+    "date clustered GNU set": "date -us tomorrow",
     "hostname set": "hostname newname",
     "hostname file set": "hostname -F host.txt",
     "file compile": "file -C -m magic",
@@ -306,6 +340,48 @@ class ClassificationTests(unittest.TestCase):
         strict = hook.Config(True, (Path("/usr/bin"),), 65_536)
         result = hook.classify("/tmp/git status", strict)
         self.assertEqual(hook.Verdict.ASK, result.verdict)
+
+    @unittest.skipIf(os.name == "nt", "POSIX executable scripts are not supported")
+    def test_trusted_non_native_executable_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            trusted_root = Path(directory).resolve()
+            strict = hook.Config(True, (trusted_root,), 65_536)
+            wrappers = {
+                "egrep": "#!/bin/sh\n",
+                "fgrep": "#!/usr/bin/env sh\n",
+                "zcat": "#!/usr/bin/env -Ssh\n",
+                "bzcat": "#!/usr/bin/env -S\\_sh\n",
+                "gunzip": "#!/usr/bin/env -S -C /tmp sh\n",
+                "xzcat": "#!/usr/bin/env -C /tmp sh\n",
+                "lzcat": "#!/bin/busybox sh\n",
+                "grep": "",
+                "cat": "exit 42\n\0",
+                "shasum": "#!/usr/bin/perl\n",
+                "yq": "#!/usr/bin/env python3\n",
+            }
+            for name, shebang in wrappers.items():
+                with self.subTest(name=name, shebang=shebang):
+                    wrapper = trusted_root / name
+                    wrapper.write_text(
+                        shebang + 'exec grep "$@"\n',
+                        encoding="utf-8",
+                    )
+                    wrapper.chmod(0o755)
+                    with mock.patch.dict(os.environ, TEST_ENV, clear=True):
+                        result = hook.classify(f"{wrapper} pattern file", strict)
+                    self.assertEqual(hook.Verdict.ASK, result.verdict)
+                    self.assertIn("not a recognized native binary", result.reason)
+
+    @unittest.skipIf(os.name == "nt", "native Windows hooks fail closed")
+    def test_trusted_native_executable_is_still_allowed(self) -> None:
+        executable_name = hook.shutil.which("date")
+        if executable_name is None:
+            self.skipTest("date executable is unavailable")
+        executable = Path(executable_name).resolve()
+        strict = hook.Config(True, (executable.parent,), 65_536)
+        with mock.patch.dict(os.environ, TEST_ENV, clear=True):
+            result = hook.classify(f"{executable} +%Y", strict)
+        self.assertEqual(hook.Verdict.ALLOW, result.verdict, result.reason)
 
     def test_dangerous_ambient_environment_fails_closed(self) -> None:
         cases = [

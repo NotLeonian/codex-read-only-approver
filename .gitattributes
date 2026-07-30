@@ -25,9 +25,9 @@
 *.eot   binary
 
 # Markdown
-*.md            text diff=markdown whitespace=-blank-at-eol
-*.mdx           text diff=markdown whitespace=-blank-at-eol
-*.md.snippet    text diff=markdown whitespace=-blank-at-eol
+*.md         text diff=markdown whitespace=-blank-at-eol
+*.mdx        text diff=markdown whitespace=-blank-at-eol
+*.md.snippet text diff=markdown whitespace=-blank-at-eol
 
 # License
 LICENSE text
@@ -51,7 +51,7 @@ LICENSE text
 *.yaml  text
 
 # Configuration and lock files
-*.in    text
-*.toml  text
-*.lock  text
+*.in            text
+*.toml          text
+*.lock          text
 *.rules.example text

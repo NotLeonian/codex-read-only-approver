@@ -1485,7 +1485,7 @@ def _git_branch_read_only(args: Sequence[str]) -> Result:
         for arg in args
     ):
         return ask("git branch short option may mutate branches")
-    list_mode = any(arg == "--list" for arg in args)
+    list_mode = False
     value_options = {
         "--format",
         "--sort",
@@ -1494,11 +1494,10 @@ def _git_branch_read_only(args: Sequence[str]) -> Result:
         "--merged",
         "--no-merged",
         "--points-at",
-        "--color",
-        "--column",
     }
+    # Git's optional long-option values must be attached with "=".
+    attached_only_value_options = {"--abbrev", "--color", "--column"}
     flags = {
-        "--list",
         "--show-current",
         "-a",
         "--all",
@@ -1511,7 +1510,6 @@ def _git_branch_read_only(args: Sequence[str]) -> Result:
         "--ignore-case",
         "-i",
         "--omit-empty",
-        "--abbrev",
         "--no-abbrev",
         "-q",
         "--quiet",
@@ -1526,10 +1524,17 @@ def _git_branch_read_only(args: Sequence[str]) -> Result:
                 return ask(f"git branch option requires a value: {arg}")
             i += 2
             continue
-        if any(arg.startswith(name + "=") for name in value_options):
+        if any(
+            arg.startswith(name + "=")
+            for name in value_options | attached_only_value_options
+        ):
             i += 1
             continue
-        if arg in flags or arg.startswith("--abbrev="):
+        if arg == "--list":
+            list_mode = True
+            i += 1
+            continue
+        if arg in flags or arg in attached_only_value_options:
             i += 1
             continue
         if arg.startswith("-"):
@@ -1577,9 +1582,8 @@ def _git_tag_read_only(args: Sequence[str]) -> Result:
 
     if not args:
         return allow("git tag listing")
-    if "--list" not in args:
-        return ask("git tag requires explicit --list for auto-approval")
 
+    list_mode = False
     value_options = {
         "--sort",
         "--format",
@@ -1588,11 +1592,10 @@ def _git_tag_read_only(args: Sequence[str]) -> Result:
         "--merged",
         "--no-merged",
         "--points-at",
-        "--color",
-        "--column",
     }
+    # Git's optional long-option values must be attached with "=".
+    attached_only_value_options = {"--color", "--column"}
     flags = {
-        "--list",
         "--no-column",
         "--ignore-case",
         "-i",
@@ -1606,16 +1609,29 @@ def _git_tag_read_only(args: Sequence[str]) -> Result:
                 return ask(f"git tag option requires a value: {arg}")
             i += 2
             continue
-        if any(arg.startswith(name + "=") for name in value_options):
+        if any(
+            arg.startswith(name + "=")
+            for name in value_options | attached_only_value_options
+        ):
             i += 1
             continue
-        if arg in flags or re.fullmatch(r"-n[0-9]*", arg):
+        if arg == "--list":
+            list_mode = True
+            i += 1
+            continue
+        if (
+            arg in flags
+            or arg in attached_only_value_options
+            or re.fullmatch(r"-n[0-9]*", arg)
+        ):
             i += 1
             continue
         if arg.startswith("-"):
             return ask(f"unsupported git tag option: {arg}")
-        # Positional operands are list patterns because --list is explicit.
+        # Positional operands are safe only if a parsed --list is found.
         i += 1
+    if not list_mode:
+        return ask("git tag requires explicit --list for auto-approval")
     return allow("git tag listing")
 
 

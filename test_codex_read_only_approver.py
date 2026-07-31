@@ -77,8 +77,26 @@ ALLOW_CASES = {
     "git show": "git -C . -c core.fsmonitor= show HEAD:README.md",
     "git branch show": "git -c core.fsmonitor= branch --show-current",
     "git branch list": "git -c core.fsmonitor= branch --list 'feature/*'",
+    "git branch parsed list after format value": (
+        "git -c core.fsmonitor= branch --format --list --list evil"
+    ),
+    "git branch bare color before list": (
+        "git -c core.fsmonitor= branch --color --list 'feature/*'"
+    ),
+    "git branch attached column before list": (
+        "git -c core.fsmonitor= branch --column=row --list 'feature/*'"
+    ),
     "git for-each-ref": "git -c core.fsmonitor= for-each-ref --format='%(refname:short)' refs/heads/",
     "git tag list": "git -c core.fsmonitor= tag --list 'v*'",
+    "git tag parsed list after format value": (
+        "git -c core.fsmonitor= tag --format --list --list evil"
+    ),
+    "git tag bare color before list": (
+        "git -c core.fsmonitor= tag --color --list 'v*'"
+    ),
+    "git tag attached column before list": (
+        "git -c core.fsmonitor= tag --column=row --list 'v*'"
+    ),
     "git config get": "git -c core.fsmonitor= config --get user.name",
     "git config modern get": "git -c core.fsmonitor= config get user.name",
     "git config modern list": "git -c core.fsmonitor= config list",
@@ -205,6 +223,27 @@ ASK_CASES = {
     "git branch force move": "git -c core.fsmonitor= branch -f name HEAD",
     "git branch upstream": "git -c core.fsmonitor= branch -u origin/main name",
     "git branch legacy short l": "git -c core.fsmonitor= branch -l",
+    "git branch list as format value": (
+        "git -c core.fsmonitor= --no-pager --no-lazy-fetch branch --format --list evil"
+    ),
+    "git branch bare color before disguised list": (
+        "git -c core.fsmonitor= branch --color --format --list evil"
+    ),
+    "git branch bare column before disguised list": (
+        "git -c core.fsmonitor= branch --column --format --list evil"
+    ),
+    "git branch bare color before branch name": (
+        "git -c core.fsmonitor= branch --color evil"
+    ),
+    "git branch bare column before branch name": (
+        "git -c core.fsmonitor= branch --column evil"
+    ),
+    "git branch attached color value resembling list": (
+        "git -c core.fsmonitor= branch --color=--list evil"
+    ),
+    "git branch attached column value resembling list": (
+        "git -c core.fsmonitor= branch --column=--list evil"
+    ),
     "git branch signature format": (
         "git -c core.fsmonitor= branch --format='%(signature:grade)' --list"
     ),
@@ -212,6 +251,21 @@ ASK_CASES = {
     "git tag annotated": "git -c core.fsmonitor= tag -a v1 -m release",
     "git tag clustered annotate": "git -c core.fsmonitor= tag -av1 -m release",
     "git tag legacy short l": "git -c core.fsmonitor= tag -l",
+    "git tag list as format value": (
+        "git -c core.fsmonitor= --no-pager --no-lazy-fetch tag --format --list evil"
+    ),
+    "git tag bare color before disguised list": (
+        "git -c core.fsmonitor= tag --color --format --list evil"
+    ),
+    "git tag bare column before disguised list": (
+        "git -c core.fsmonitor= tag --column --format --list evil"
+    ),
+    "git tag attached color value resembling list": (
+        "git -c core.fsmonitor= tag --color=--list evil"
+    ),
+    "git tag attached column value resembling list": (
+        "git -c core.fsmonitor= tag --column=--list evil"
+    ),
     "git tag signature format": (
         "git -c core.fsmonitor= tag --format='%(signature:grade)' --list"
     ),

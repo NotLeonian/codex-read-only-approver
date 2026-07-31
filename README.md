@@ -128,6 +128,8 @@ Start from [`config.json.example`](config.json.example).
 Path verification deliberately does not auto-approve shebang or other text executables, even inside a trusted root, because their interpreter and transitive helper execution cannot be proven from the outer command.
 Each `PATH` component used to resolve a bare executable must be non-empty and absolute; use an absolute executable path or clean `PATH` when that condition is not met.
 Ambient checks reject option-injecting variables such as `GIT_EXTERNAL_DIFF`, `RIPGREP_CONFIG_PATH` (unless `rg --no-config` is used), `TAR_OPTIONS`, and compressor/archive option variables.
+Tar listings require an explicit supported compression option such as `-z`, `-j`, or `-J`.
+Without one, GNU tar can detect a compressed input and dispatch a decompressor through `PATH`, so even a nominally uncompressed listing remains subject to human approval.
 
 ### Additional Git conditions
 Even nominally read-only Git commands may launch a pager, lazy-fetch partial-clone objects, refresh the index, or execute configured FSMonitor and textconv helpers.

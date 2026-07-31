@@ -1315,9 +1315,13 @@ def _classify_find(argv: Sequence[str], config: Config) -> Result:
                 end += 1
             if end >= len(argv) or end == i + 1:
                 return ask(f"malformed find {arg} action")
-            inner = _classify_argv(
-                argv[i + 1 : end], config, shell_builtins_available=False
-            )
+            inner_argv = argv[i + 1 : end]
+            if any("{}" in token for token in inner_argv):
+                return ask(
+                    f"find {arg} substitutes unvalidated paths for {{}}; "
+                    "replacement values may change inner command semantics"
+                )
+            inner = _classify_argv(inner_argv, config, shell_builtins_available=False)
             if inner.verdict is Verdict.ASK:
                 return ask(f"find {arg} wraps a non-read-only command: {inner.reason}")
             i = end + 1
@@ -1923,9 +1927,10 @@ def _classify_git(
             return allow(f"git notes {args[0]} read")
         return ask("git notes operation may modify notes")
     if subcommand == "submodule":
-        if args and args[0] == "status":
-            return allow("git submodule status read")
-        return ask("git submodule operation is not a proven helper-free read")
+        return ask(
+            "git submodule may dispatch an interpreted helper and transitive "
+            "PATH-resolved commands"
+        )
     return ask(f"git subcommand is not in the read-only allowlist: {subcommand}")
 
 
@@ -2008,10 +2013,13 @@ def _verify_tar_compression_helpers(
         "z": ("gzip", ("GZIP",)),
         "j": ("bzip2", ("BZIP2", "BZIP")),
         "J": ("xz", ("XZ_OPT",)),
-        "L": ("lzma", ("XZ_OPT",)),
-        "Z": ("uncompress", ()),
     }
     for mode in sorted(compression):
+        if mode not in helper_names:
+            return ask(
+                "tar compression mode dispatches an implementation-specific "
+                f"helper: {mode}"
+            )
         helper, option_envs = helper_names[mode]
         trusted, detail = _trusted_executable(
             helper, config, shell_builtins_available=False
@@ -2079,6 +2087,7 @@ def _classify_tar(argv: Sequence[str], config: Config) -> Result:
         "--show-transformed-names",
         "--show-stored-names",
         "--no-unquote",
+        "--no-auto-compress",
         "--block-number",
         "--same-order",
         "--preserve-order",
@@ -2193,6 +2202,11 @@ def _classify_tar(argv: Sequence[str], config: Config) -> Result:
                     "tar archive names containing ':' may invoke a remote-shell helper; "
                     "use --force-local for a local filename"
                 )
+    if not compression:
+        return ask(
+            "tar may auto-detect compression and execute an unverified "
+            "decompression helper; specify an explicit compression option"
+        )
     helper_issue = _verify_tar_compression_helpers(compression, config)
     if helper_issue is not None:
         return helper_issue

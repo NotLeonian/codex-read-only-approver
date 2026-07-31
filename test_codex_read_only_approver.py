@@ -56,7 +56,7 @@ ALLOW_CASES = {
     "ripgrep": "rg --hidden 'TODO|FIXME' .",
     "fd": "fd -t f py src",
     "find": "find . -type f -name '*.py'",
-    "find safe exec": r"find . -type f -exec cat {} \;",
+    "find safe constant exec": r"find . -type f -exec cat README.md \;",
     "sed range": "sed -n '1,120p' README.md",
     "sed substitution": "sed -E 's/foo/bar/g' README.md",
     "sed delete output": "sed '/^#/d' README.md",
@@ -108,7 +108,6 @@ ALLOW_CASES = {
     "git worktree list": "git -c core.fsmonitor= worktree list --porcelain",
     "git reflog": "git -c core.fsmonitor= reflog show --date=iso",
     "git notes": "git -c core.fsmonitor= notes list",
-    "git submodule": "git -c core.fsmonitor= submodule status",
     "uniq stdout": "uniq -c names.txt",
     "uniq dash-named input": "uniq -- -c",
     "printf stdout": "printf '%s\n' hello",
@@ -118,20 +117,20 @@ ALLOW_CASES = {
     "jq": "jq -r '.items[]?.name' data.json",
     "yq stdout": "yq '.services' compose.yaml",
     "yq pretty stdout": "yq -P '.services' compose.yaml",
-    "tar list": "tar -tf archive.tar",
-    "tar long list": "tar --list --file archive.tar",
-    "tar list alphabetic archive": "tar -tf archive",
+    "tar list": "tar -ztf archive.tar",
+    "tar long list": "tar --gzip --list --file archive.tar",
+    "tar list alphabetic archive": "tar -ztf archive",
     "tar compressed list": "tar -ztf archive.tar.gz",
-    "tar traditional list": "tar tf archive.tar",
-    "tar traditional ordered local values": "tar tCf directory archive.tar",
-    "tar force local before remote archive": "tar --force-local -tf host:archive",
-    "tar force local after remote archive": "tar -tf host:archive --force-local",
-    "tar dash short archive value before force local": "tar -tf -- --force-local",
+    "tar traditional list": "tar ztf archive.tar",
+    "tar traditional ordered local values": "tar ztCf directory archive.tar",
+    "tar force local before remote archive": "tar --force-local -ztf host:archive",
+    "tar force local after remote archive": "tar -ztf host:archive --force-local",
+    "tar dash short archive value before force local": "tar -ztf -- --force-local",
     "tar dash long archive value before force local": (
-        "tar --list --file -- --force-local"
+        "tar --gzip --list --file -- --force-local"
     ),
     "tar dash directory value before forced local remote": (
-        "tar -C -- -tf host:archive --force-local"
+        "tar --gzip -C -- -tf host:archive --force-local"
     ),
     "gzip stdout": "gzip -dc archive.gz",
     "gzip split stdout": "gzip -v -c archive.gz",
@@ -208,6 +207,23 @@ ASK_CASES = {
     "find fprint": "find . -fprint output.txt",
     "find unsafe exec": r"find . -exec rm {} \;",
     "find shell exec": r"find . -exec sh -c 'touch owned' \;",
+    "find standalone exec placeholder": r"find . -exec cat {} \;",
+    "find embedded exec placeholder": (
+        r"find 'plugin=/tmp/evil.so' -exec nm '--{}' /bin/ls \;"
+    ),
+    "find files0-from exec placeholder": (
+        r"find -files0-from roots -exec nm {} /bin/ls \;"
+    ),
+    "find BSD f exec placeholder": (
+        r"find -f --plugin=/tmp/evil.so -exec nm {} /bin/ls \;"
+    ),
+    "find BSD attached f exec placeholder": (
+        r"find -Xf--plugin=/tmp/evil.so -exec nm {} /bin/ls \;"
+    ),
+    "find execdir option-looking basename": (r"find . -execdir nm {} /bin/ls \;"),
+    "find exec placeholder changes tar archive semantics": (
+        r"find 'host:archive' -exec tar -ztf {} \;"
+    ),
     "git status may write index": "git -c core.fsmonitor= status --short",
     "git add": "git -c core.fsmonitor= add README.md",
     "git commit": "git -c core.fsmonitor= commit -m test",
@@ -283,6 +299,10 @@ ASK_CASES = {
     "git stash push": "git -c core.fsmonitor= stash push -m temp",
     "git worktree add": "git -c core.fsmonitor= worktree add ../other branch",
     "git notes add": "git -c core.fsmonitor= notes add -m note",
+    "git submodule status": "git -c core.fsmonitor= submodule status",
+    "git submodule status options": (
+        "git -c core.fsmonitor= submodule status --cached --recursive"
+    ),
     "git submodule update": "git -c core.fsmonitor= submodule update --init",
     "git submodule summary": "git -c core.fsmonitor= submodule summary",
     "git dangerous global c": "git -c core.pager='touch owned' log",
@@ -345,6 +365,12 @@ ASK_CASES = {
     "yq abbreviated inplace": "yq --in-p '.x = 1' file.yaml",
     "tar extract": "tar -xf archive.tar",
     "tar create": "tar -cf archive.tar src",
+    "tar implicit compressed list": "tar -tf archive.tar.gz",
+    "tar implicit plain list": "tar -tf archive.tar",
+    "tar implicit traditional list": "tar tf archive.tar",
+    "tar no-auto-compress still has implicit detection": (
+        "tar --no-auto-compress -tf archive.tar.gz"
+    ),
     "tar helper": "tar -tf archive.tar --checkpoint-action=exec='touch owned'",
     "tar abbreviated helper": "tar -tf archive.tar --checkpoint-act=exec='touch owned'",
     "tar joined compressor helper": "tar -tf archive.tar -Ievil",
@@ -607,7 +633,7 @@ class ClassificationTests(unittest.TestCase):
             ({"RIPGREP_CONFIG_PATH": "/tmp/rg.conf"}, "rg pattern ."),
             (
                 {"TAR_OPTIONS": "--checkpoint-action=exec=touch owned"},
-                "tar -tf archive.tar",
+                "tar -ztf archive.tar",
             ),
             ({"UNZIPOPT": "-o"}, "unzip -l archive.zip"),
             ({"DEBUGINFOD_URLS": "https://debuginfod.example"}, "objdump -h binary"),
@@ -773,14 +799,29 @@ class ClassificationTests(unittest.TestCase):
         with mock.patch.dict(
             os.environ, {**TEST_ENV, "TAPE": "host:/dev/nst0"}, clear=True
         ):
-            result = hook.classify("tar -t", CONFIG)
+            result = hook.classify("tar -zt", CONFIG)
         self.assertEqual(hook.Verdict.ASK, result.verdict)
 
         with mock.patch.dict(
             os.environ, {**TEST_ENV, "TAR_RSH": "evil-helper"}, clear=True
         ):
-            result = hook.classify("tar -tf archive.tar", CONFIG)
+            result = hook.classify("tar -ztf archive.tar", CONFIG)
         self.assertEqual(hook.Verdict.ASK, result.verdict)
+
+    def test_tar_rejects_modes_with_implementation_specific_helpers(self) -> None:
+        options = ("--lzma", "-Z", "--compress", "--uncompress")
+        with mock.patch.dict(os.environ, TEST_ENV, clear=True):
+            for option in options:
+                with self.subTest(option=option):
+                    result = hook.classify(f"tar {option} -tf archive.tar", CONFIG)
+                    self.assertEqual(hook.Verdict.ASK, result.verdict)
+                    self.assertIn("implementation-specific helper", result.reason)
+
+    def test_tar_no_auto_compress_does_not_disable_format_detection(self) -> None:
+        with mock.patch.dict(os.environ, TEST_ENV, clear=True):
+            result = hook.classify("tar --no-auto-compress -tf archive.tar.gz", CONFIG)
+        self.assertEqual(hook.Verdict.ASK, result.verdict)
+        self.assertIn("auto-detect compression", result.reason)
 
     def test_only_leading_rg_no_config_neutralizes_ambient_config(self) -> None:
         with mock.patch.dict(

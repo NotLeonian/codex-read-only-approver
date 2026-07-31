@@ -63,35 +63,36 @@ ALLOW_CASES = {
     "sed multiple expressions": "sed -n -e '1,5p' -e '$p' README.md",
     "sed combined expression": "sed -ne '1,5p' README.md",
     "sed read another file": "sed '1r header.txt' body.txt",
-    "pipeline": "git diff --no-ext-diff --no-textconv -- README.md | sed -n '1,80p' | head -40",
-    "chain": "pwd && GIT_OPTIONAL_LOCKS=0 git status --short && rg TODO .",
-    "multiline read-only": "pwd\nGIT_OPTIONAL_LOCKS=0 git status --short\nrg TODO .",
+    "pipeline": "git -c core.fsmonitor= diff --no-ext-diff --no-textconv -- README.md | sed -n '1,80p' | head -40",
+    "chain": "pwd && GIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor= status --short && rg TODO .",
+    "multiline read-only": "pwd\nGIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor= status --short\nrg TODO .",
     "input redirect": "wc -l < README.md",
     "stderr discard": "grep x missing 2>/dev/null",
-    "fd duplicate": "GIT_OPTIONAL_LOCKS=0 git status 2>&1",
+    "fd duplicate": "GIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor= status 2>&1",
     "safe env": "LC_ALL=C NO_COLOR=1 rg TODO .",
-    "git status global flag": "git --no-optional-locks status --short",
-    "git status optional locks": "GIT_OPTIONAL_LOCKS=0 git status --short",
-    "git diff": "git --no-pager diff --no-ext-diff --no-textconv --stat",
-    "git log": "git log --oneline -20",
-    "git show": "git -C . show HEAD:README.md",
-    "git branch show": "git branch --show-current",
-    "git branch list": "git branch --list 'feature/*'",
-    "git for-each-ref": "git for-each-ref --format='%(refname:short)' refs/heads/",
-    "git tag list": "git tag --list 'v*'",
-    "git config get": "git config --get user.name",
-    "git config modern get": "git config get user.name",
-    "git config modern list": "git config list",
-    "git config shorthand get": "git config user.name",
-    "git remote list": "git remote -v",
-    "git remote url": "git remote get-url origin",
-    "git stash list": "git stash list",
-    "git stash show": "git stash show -p --no-ext-diff --no-textconv stash@{0}",
-    "git worktree list": "git worktree list --porcelain",
-    "git reflog": "git reflog show --date=iso",
-    "git notes": "git notes list",
-    "git submodule": "git submodule status",
+    "git status global flag": "git -c core.fsmonitor= --no-optional-locks status --short",
+    "git status optional locks": "GIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor= status --short",
+    "git diff": "git --no-pager -c core.fsmonitor= diff --no-ext-diff --no-textconv --stat",
+    "git log": "git -c core.fsmonitor= log --oneline -20",
+    "git show": "git -C . -c core.fsmonitor= show HEAD:README.md",
+    "git branch show": "git -c core.fsmonitor= branch --show-current",
+    "git branch list": "git -c core.fsmonitor= branch --list 'feature/*'",
+    "git for-each-ref": "git -c core.fsmonitor= for-each-ref --format='%(refname:short)' refs/heads/",
+    "git tag list": "git -c core.fsmonitor= tag --list 'v*'",
+    "git config get": "git -c core.fsmonitor= config --get user.name",
+    "git config modern get": "git -c core.fsmonitor= config get user.name",
+    "git config modern list": "git -c core.fsmonitor= config list",
+    "git config shorthand get": "git -c core.fsmonitor= config user.name",
+    "git remote list": "git -c core.fsmonitor= remote -v",
+    "git remote url": "git -c core.fsmonitor= remote get-url origin",
+    "git stash list": "git -c core.fsmonitor= stash list",
+    "git stash show": "git -c core.fsmonitor= stash show -p --no-ext-diff --no-textconv stash@{0}",
+    "git worktree list": "git -c core.fsmonitor= worktree list --porcelain",
+    "git reflog": "git -c core.fsmonitor= reflog show --date=iso",
+    "git notes": "git -c core.fsmonitor= notes list",
+    "git submodule": "git -c core.fsmonitor= submodule status",
     "uniq stdout": "uniq -c names.txt",
+    "uniq dash-named input": "uniq -- -c",
     "printf stdout": "printf '%s\n' hello",
     "diff stdout": "diff -u before.txt after.txt",
     "base64 stdout": "base64 input.bin",
@@ -129,11 +130,11 @@ ALLOW_CASES = {
     "nm inspect": "nm binary",
     "objdump inspect": "objdump -h binary",
     "tree listing": "tree -L 2 .",
-    "timeout wrapper": "timeout 5 GIT_OPTIONAL_LOCKS=0 git status --short",
-    "command wrapper": "command -- git --no-optional-locks status --short",
+    "timeout wrapper": "timeout 5 GIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor= status --short",
+    "command wrapper": "command -- git -c core.fsmonitor= --no-optional-locks status --short",
     "command lookup": "command -v git",
-    "env wrapper": "env LC_ALL=C GIT_OPTIONAL_LOCKS=0 git status --short",
-    "comment": "GIT_OPTIONAL_LOCKS=0 git status # read only",
+    "env wrapper": "env LC_ALL=C GIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor= status --short",
+    "comment": "GIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor= status # read only",
     "literal dollar in sed": "sed -n '$p' README.md",
 }
 
@@ -177,52 +178,81 @@ ASK_CASES = {
     "find fprint": "find . -fprint output.txt",
     "find unsafe exec": r"find . -exec rm {} \;",
     "find shell exec": r"find . -exec sh -c 'touch owned' \;",
-    "git status may write index": "git status --short",
-    "git add": "git add README.md",
-    "git commit": "git commit -m test",
-    "git push": "git push origin main",
-    "git fetch": "git fetch origin",
-    "git pull": "git pull --ff-only",
-    "git checkout": "git checkout main",
-    "git switch": "git switch -c feature",
-    "git restore": "git restore README.md",
-    "git reset": "git reset --hard HEAD~1",
-    "git clean": "git clean -fd",
-    "git branch create": "git branch new-branch",
-    "git branch delete": "git branch -D old",
-    "git branch force move": "git branch -f name HEAD",
-    "git branch upstream": "git branch -u origin/main name",
-    "git branch legacy short l": "git branch -l",
-    "git branch signature format": "git branch --format='%(signature:grade)' --list",
-    "git tag create": "git tag v1.0.0",
-    "git tag annotated": "git tag -a v1 -m release",
-    "git tag clustered annotate": "git tag -av1 -m release",
-    "git tag legacy short l": "git tag -l",
-    "git tag signature format": "git tag --format='%(signature:grade)' --list",
-    "git for-each-ref signature format": (
-        "git for-each-ref --format='%(signature:grade)' refs/heads/"
+    "git status may write index": "git -c core.fsmonitor= status --short",
+    "git add": "git -c core.fsmonitor= add README.md",
+    "git commit": "git -c core.fsmonitor= commit -m test",
+    "git push": "git -c core.fsmonitor= push origin main",
+    "git fetch": "git -c core.fsmonitor= fetch origin",
+    "git pull": "git -c core.fsmonitor= pull --ff-only",
+    "git checkout": "git -c core.fsmonitor= checkout main",
+    "git switch": "git -c core.fsmonitor= switch -c feature",
+    "git restore": "git -c core.fsmonitor= restore README.md",
+    "git reset": "git -c core.fsmonitor= reset --hard HEAD~1",
+    "git clean": "git -c core.fsmonitor= clean -fd",
+    "git branch create": "git -c core.fsmonitor= branch new-branch",
+    "git branch delete": "git -c core.fsmonitor= branch -D old",
+    "git branch force move": "git -c core.fsmonitor= branch -f name HEAD",
+    "git branch upstream": "git -c core.fsmonitor= branch -u origin/main name",
+    "git branch legacy short l": "git -c core.fsmonitor= branch -l",
+    "git branch signature format": (
+        "git -c core.fsmonitor= branch --format='%(signature:grade)' --list"
     ),
-    "git config set": "git config user.name Alice",
-    "git config modern set": "git config set user.name Alice",
-    "git config unset": "git config --unset user.name",
-    "git config get with edit": "git config get --edit user.name",
-    "git remote add": "git remote add origin https://example.com/repo.git",
-    "git stash push": "git stash push -m temp",
-    "git worktree add": "git worktree add ../other branch",
-    "git notes add": "git notes add -m note",
-    "git submodule update": "git submodule update --init",
-    "git submodule summary": "git submodule summary",
+    "git tag create": "git -c core.fsmonitor= tag v1.0.0",
+    "git tag annotated": "git -c core.fsmonitor= tag -a v1 -m release",
+    "git tag clustered annotate": "git -c core.fsmonitor= tag -av1 -m release",
+    "git tag legacy short l": "git -c core.fsmonitor= tag -l",
+    "git tag signature format": (
+        "git -c core.fsmonitor= tag --format='%(signature:grade)' --list"
+    ),
+    "git for-each-ref signature format": (
+        "git -c core.fsmonitor= for-each-ref --format='%(signature:grade)' refs/heads/"
+    ),
+    "git config set": "git -c core.fsmonitor= config user.name Alice",
+    "git config modern set": "git -c core.fsmonitor= config set user.name Alice",
+    "git config unset": "git -c core.fsmonitor= config --unset user.name",
+    "git config get with edit": ("git -c core.fsmonitor= config get --edit user.name"),
+    "git remote add": (
+        "git -c core.fsmonitor= remote add origin https://example.com/repo.git"
+    ),
+    "git stash push": "git -c core.fsmonitor= stash push -m temp",
+    "git worktree add": "git -c core.fsmonitor= worktree add ../other branch",
+    "git notes add": "git -c core.fsmonitor= notes add -m note",
+    "git submodule update": "git -c core.fsmonitor= submodule update --init",
+    "git submodule summary": "git -c core.fsmonitor= submodule summary",
     "git dangerous global c": "git -c core.pager='touch owned' log",
-    "git output": "git diff --output=diff.txt",
-    "git ext diff": "git diff --ext-diff",
-    "git diff external diff not disabled": "git diff --no-textconv --stat",
-    "git diff textconv not disabled": "git diff --no-ext-diff --stat",
-    "git log patch external diff not disabled": "git log -p --no-textconv -1",
-    "git log patch textconv not disabled": "git log -p --no-ext-diff -1",
-    "git reflog patch external diff not disabled": "git reflog show -p --no-textconv -1",
-    "git reflog patch textconv not disabled": "git reflog show -p --no-ext-diff -1",
-    "git pager helper": "git grep --open-files-in-pager=vim pattern",
-    "git pager helper short": "git grep -Ovim pattern",
+    "git fsmonitor false is version-dependent": (
+        "git -c core.fsmonitor=false log --oneline -1"
+    ),
+    "git fsmonitor helper path": "git -c core.fsmonitor=/bin/false log --oneline -1",
+    "git later dangerous config override": (
+        "git -c core.fsmonitor= -c core.pager='touch owned' log"
+    ),
+    "git version trailing help": "git --version --help",
+    "git subcommand help viewer": "git -c core.fsmonitor= log --help",
+    "git output": "git -c core.fsmonitor= diff --output=diff.txt",
+    "git ext diff": "git -c core.fsmonitor= diff --ext-diff",
+    "git diff external diff not disabled": (
+        "git -c core.fsmonitor= diff --no-textconv --stat"
+    ),
+    "git diff textconv not disabled": (
+        "git -c core.fsmonitor= diff --no-ext-diff --stat"
+    ),
+    "git log patch external diff not disabled": (
+        "git -c core.fsmonitor= log -p --no-textconv -1"
+    ),
+    "git log patch textconv not disabled": (
+        "git -c core.fsmonitor= log -p --no-ext-diff -1"
+    ),
+    "git reflog patch external diff not disabled": (
+        "git -c core.fsmonitor= reflog show -p --no-textconv -1"
+    ),
+    "git reflog patch textconv not disabled": (
+        "git -c core.fsmonitor= reflog show -p --no-ext-diff -1"
+    ),
+    "git pager helper": (
+        "git -c core.fsmonitor= grep --open-files-in-pager=vim pattern"
+    ),
+    "git pager helper short": "git -c core.fsmonitor= grep -Ovim pattern",
     "printf variable assignment": "printf -v EXPORTED_VAR '%s' changed",
     "printf n conversion": "printf '%n' PATH",
     "printf positional n conversion": "printf '%1$n' PATH",
@@ -236,6 +266,10 @@ ASK_CASES = {
     "sort joined temp dir": "sort -uT/tmp input.txt",
     "uniq output operand": "uniq input.txt output.txt",
     "uniq output operand after options": "uniq -c input.txt output.txt",
+    "uniq flag-looking output operand": "uniq input.txt -c",
+    "uniq long-flag-looking output operand": "uniq input.txt --count",
+    "uniq option terminator as output operand": "uniq input.txt --",
+    "uniq value-option-looking output operand": "uniq input.txt -f1",
     "base64 output": "base64 -o output.txt input.bin",
     "base64 clustered output": "base64 -Dooutput.txt input.bin",
     "yq inplace": "yq -i '.x = 1' file.yaml",
@@ -341,6 +375,70 @@ class ClassificationTests(unittest.TestCase):
         result = hook.classify("/tmp/git status", strict)
         self.assertEqual(hook.Verdict.ASK, result.verdict)
 
+    @unittest.skipIf(os.name == "nt", "POSIX PATH semantics are not supported")
+    def test_relative_path_component_fails_closed_after_cd(self) -> None:
+        cat_name = hook.shutil.which("cat")
+        if cat_name is None:
+            self.skipTest("cat executable is unavailable")
+        cat_command = Path(cat_name).absolute()
+        cat_executable = cat_command.resolve()
+        strict = hook.Config(True, (cat_executable.parent,), 65_536)
+        path_values = (
+            f".{os.pathsep}{cat_command.parent}",
+            f"{os.pathsep}{cat_command.parent}",
+            f"relative/bin{os.pathsep}{cat_command.parent}",
+        )
+        for path_value in path_values:
+            with self.subTest(path=path_value):
+                with mock.patch.dict(
+                    os.environ, {**TEST_ENV, "PATH": path_value}, clear=True
+                ):
+                    result = hook.classify("cd /tmp && cat victim", strict)
+                self.assertEqual(hook.Verdict.ASK, result.verdict)
+                self.assertIn("PATH", result.reason)
+
+        with mock.patch.dict(
+            os.environ, {**TEST_ENV, "PATH": str(cat_command.parent)}, clear=True
+        ):
+            result = hook.classify("cd /tmp && cat victim", strict)
+        self.assertEqual(hook.Verdict.ALLOW, result.verdict)
+
+        with mock.patch.dict(
+            os.environ,
+            {**TEST_ENV, "PATH": f".{os.pathsep}{cat_command.parent}"},
+            clear=True,
+        ):
+            result = hook.classify(f"cd /tmp && {cat_command} victim", strict)
+        self.assertEqual(hook.Verdict.ALLOW, result.verdict)
+
+    @unittest.skipIf(os.name == "nt", "POSIX PATH semantics are not supported")
+    def test_relative_path_component_applies_to_external_wrappers(self) -> None:
+        env_name = hook.shutil.which("env")
+        pwd_name = hook.shutil.which("pwd")
+        if env_name is None or pwd_name is None:
+            self.skipTest("env or pwd executable is unavailable")
+        env_command = Path(env_name).absolute()
+        pwd_command = Path(pwd_name).absolute()
+        trusted_roots = (env_command.resolve().parent, pwd_command.resolve().parent)
+        strict = hook.Config(True, trusted_roots, 65_536)
+        absolute_path = os.pathsep.join(
+            dict.fromkeys((str(env_command.parent), str(pwd_command.parent)))
+        )
+        with mock.patch.dict(
+            os.environ,
+            {**TEST_ENV, "PATH": f".{os.pathsep}{absolute_path}"},
+            clear=True,
+        ):
+            result = hook.classify(f"{env_command} pwd", strict)
+        self.assertEqual(hook.Verdict.ASK, result.verdict)
+        self.assertIn("PATH", result.reason)
+
+        with mock.patch.dict(
+            os.environ, {**TEST_ENV, "PATH": absolute_path}, clear=True
+        ):
+            result = hook.classify(f"{env_command} pwd", strict)
+        self.assertEqual(hook.Verdict.ALLOW, result.verdict)
+
     @unittest.skipIf(os.name == "nt", "POSIX executable scripts are not supported")
     def test_trusted_non_native_executable_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -421,19 +519,41 @@ class ClassificationTests(unittest.TestCase):
         ):
             result = hook.classify(
                 "GIT_PAGER=cat GIT_OPTIONAL_LOCKS=0 "
-                "GIT_NO_LAZY_FETCH=1 git status --short",
+                "GIT_NO_LAZY_FETCH=1 git -c core.fsmonitor= status --short",
                 CONFIG,
             )
         self.assertEqual(hook.Verdict.ALLOW, result.verdict)
 
+    def test_git_requires_explicit_fsmonitor_neutralization(self) -> None:
+        commands = (
+            "GIT_OPTIONAL_LOCKS=0 git status --short",
+            "git diff --no-ext-diff --no-textconv --stat",
+            "git ls-files",
+            "git grep pattern",
+            "git blame README.md",
+            "git submodule status",
+            "git config --get user.name",
+        )
+        with mock.patch.dict(os.environ, TEST_ENV, clear=True):
+            for command in commands:
+                with self.subTest(command=command):
+                    result = hook.classify(command, CONFIG)
+                    self.assertEqual(hook.Verdict.ASK, result.verdict)
+                    self.assertIn("FSMonitor", result.reason)
+
+    def test_git_version_does_not_require_fsmonitor_neutralization(self) -> None:
+        with mock.patch.dict(os.environ, TEST_ENV, clear=True):
+            result = hook.classify("git --version", CONFIG)
+        self.assertEqual(hook.Verdict.ALLOW, result.verdict)
+
     def test_git_requires_explicit_pager_and_lazy_fetch_neutralization(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=True):
-            result = hook.classify("git log --oneline -1", CONFIG)
+            result = hook.classify("git -c core.fsmonitor= log --oneline -1", CONFIG)
         self.assertEqual(hook.Verdict.ASK, result.verdict)
         self.assertIn("pager", result.reason.lower())
 
         with mock.patch.dict(os.environ, {"GIT_PAGER": "cat"}, clear=True):
-            result = hook.classify("git log --oneline -1", CONFIG)
+            result = hook.classify("git -c core.fsmonitor= log --oneline -1", CONFIG)
         self.assertEqual(hook.Verdict.ASK, result.verdict)
         self.assertIn("lazy fetch", result.reason.lower())
 
@@ -464,7 +584,7 @@ class ClassificationTests(unittest.TestCase):
             "cat README.md",
             "ls -la",
             "sed -n '1,5p' README.md",
-            "GIT_OPTIONAL_LOCKS=0 git status --short",
+            "GIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor= status --short",
             "rg TODO .",
             "find . -type f",
         ]

@@ -2,7 +2,7 @@
 A PermissionRequest hook auto-approves only statically verifiable read-only commands.
 
 - Separate inspection and mutation into different tool calls.
-- For read-only Git inspection, use `GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat git ...`.
+- For read-only Git inspection, use `GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat git -c core.fsmonitor= ...`.
   Add `--no-ext-diff --no-textconv` to `git diff`, ordinary `git show`, and patch-producing `git log` / `git stash show` / `git reflog show`.
 - Prefer explicit paths.
   Quote search patterns and globs so the shell cannot expand them into option-looking filenames.

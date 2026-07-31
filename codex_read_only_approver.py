@@ -280,9 +280,6 @@ def _is_under(path: Path, root: Path) -> bool:
 def _resolve_executable_path(command_word: str) -> Path | None:
     """Resolve an executable without deciding whether its location is trusted."""
 
-    name = os.path.basename(command_word)
-    if name in SHELL_BUILTINS and "/" not in command_word:
-        return None
     if "/" in command_word:
         candidate = Path(command_word).expanduser()
         if not candidate.is_absolute():
@@ -300,6 +297,16 @@ def _resolve_executable_path(command_word: str) -> Path | None:
     if not real.is_file() or not os.access(real, os.X_OK):
         return None
     return real
+
+
+def _path_has_relative_component() -> bool:
+    """Return whether PATH can resolve a command relative to the working directory."""
+
+    path_value = os.environ.get("PATH", os.defpath)
+    return any(
+        not component or not Path(component).is_absolute()
+        for component in path_value.split(os.pathsep)
+    )
 
 
 def _is_native_executable(path: Path) -> bool | None:
@@ -366,14 +373,21 @@ def _shebang_interpreter(path: Path) -> str | None:
     return os.path.basename(args[i])
 
 
-def _trusted_executable(command_word: str, config: Config) -> tuple[bool, str]:
+def _trusted_executable(
+    command_word: str,
+    config: Config,
+    *,
+    shell_builtins_available: bool = True,
+) -> tuple[bool, str]:
     name = os.path.basename(command_word)
-    if name in SHELL_BUILTINS and "/" not in command_word:
+    if shell_builtins_available and name in SHELL_BUILTINS and "/" not in command_word:
         return True, "shell builtin"
     if "/" in command_word and not Path(command_word).expanduser().is_absolute():
         return False, "relative executable paths are not trusted"
     if not config.verify_executable_paths:
         return True, "path verification disabled"
+    if "/" not in command_word and _path_has_relative_component():
+        return False, "PATH contains a relative or empty component"
 
     real = _resolve_executable_path(command_word)
     if real is None:
@@ -844,7 +858,7 @@ def _classify_timeout(argv: Sequence[str], config: Config) -> Result:
     i += 1  # duration
     if i >= len(argv):
         return ask("timeout is missing the wrapped command")
-    inner = _classify_argv(argv[i:], config)
+    inner = _classify_argv(argv[i:], config, shell_builtins_available=False)
     if inner.verdict is Verdict.ALLOW:
         return allow(f"timeout wrapper around read-only command: {inner.reason}")
     return inner
@@ -879,7 +893,9 @@ def _classify_env(argv: Sequence[str], config: Config) -> Result:
         return ask(f"unsupported env option: {argv[i]}")
     # Preserve safe assignments so the inner classifier can reason about their
     # effective values (for example GIT_OPTIONAL_LOCKS=0).
-    return _classify_argv([*assignments, *argv[i:]], config)
+    return _classify_argv(
+        [*assignments, *argv[i:]], config, shell_builtins_available=False
+    )
 
 
 def _classify_cd(argv: Sequence[str]) -> Result:
@@ -946,11 +962,15 @@ def _classify_uniq(argv: Sequence[str]) -> Result:
         "--help",
         "--version",
     }
-    positionals: list[str] = []
+    input_seen = False
     i = 1
     end_options = False
     while i < len(argv):
         arg = argv[i]
+        # BSD uniq, and GNU uniq in POSIX mode, stop option parsing at the
+        # input operand. A later option-looking word can therefore be OUTPUT.
+        if input_seen:
+            return ask("uniq's second file operand is an output file")
         if not end_options and arg == "--":
             end_options = True
             i += 1
@@ -981,10 +1001,8 @@ def _classify_uniq(argv: Sequence[str]) -> Result:
                 i += 1
                 continue
             return ask(f"unsupported uniq option: {arg}")
-        positionals.append(arg)
+        input_seen = True
         i += 1
-    if len(positionals) > 1:
-        return ask("uniq's second file operand is an output file")
     return allow("uniq comparison to standard output")
 
 
@@ -1287,7 +1305,9 @@ def _classify_find(argv: Sequence[str], config: Config) -> Result:
                 end += 1
             if end >= len(argv) or end == i + 1:
                 return ask(f"malformed find {arg} action")
-            inner = _classify_argv(argv[i + 1 : end], config)
+            inner = _classify_argv(
+                argv[i + 1 : end], config, shell_builtins_available=False
+            )
             if inner.verdict is Verdict.ASK:
                 return ask(f"find {arg} wraps a non-read-only command: {inner.reason}")
             i = end + 1
@@ -1308,6 +1328,7 @@ def _git_reject_common_options(args: Sequence[str]) -> str | None:
     prefixes = ("--output=", "--open-files-in-pager=", "-O")
     dangerous_long = _has_long_option_or_abbreviation(
         args,
+        "--help",
         "--output",
         "--ext-diff",
         "--textconv",
@@ -1361,10 +1382,18 @@ def _consume_git_global_options(argv: Sequence[str]) -> tuple[int | None, str | 
         if arg in safe_flags:
             i += 1
             continue
+        if arg == "-c":
+            if i + 1 >= len(argv):
+                return None, "git global option requires a value: -c"
+            if argv[i + 1] != "core.fsmonitor=":
+                return None, "git global option can alter execution: -c"
+            i += 2
+            continue
         if arg == "--version":
+            if i + 1 != len(argv):
+                return None, "git --version does not accept trailing arguments"
             return -1, None
         if arg in {
-            "-c",
             "--config-env",
             "--exec-path",
             "-p",
@@ -1696,6 +1725,16 @@ def _classify_git(
     def effective_env(name: str) -> str:
         return effective_environment.get(name, os.environ.get(name, ""))
 
+    fsmonitor_disabled = any(
+        global_args[i : i + 2] == ["-c", "core.fsmonitor="]
+        for i in range(len(global_args) - 1)
+    )
+    if not fsmonitor_disabled:
+        return ask(
+            "Git FSMonitor execution is not explicitly disabled; "
+            "use git -c core.fsmonitor= ..."
+        )
+
     optional_locks_disabled = (
         effective_env("GIT_OPTIONAL_LOCKS") == "0"
         or "--no-optional-locks" in global_args
@@ -1940,7 +1979,9 @@ def _verify_tar_compression_helpers(
     }
     for mode in sorted(compression):
         helper, option_envs = helper_names[mode]
-        trusted, detail = _trusted_executable(helper, config)
+        trusted, detail = _trusted_executable(
+            helper, config, shell_builtins_available=False
+        )
         if not trusted:
             return ask(f"tar compression helper is not trusted: {helper}: {detail}")
         if config.verify_ambient_environment:
@@ -2574,7 +2615,12 @@ def _ambient_environment_issue(
     return None
 
 
-def _classify_argv(argv: Sequence[str], config: Config) -> Result:
+def _classify_argv(
+    argv: Sequence[str],
+    config: Config,
+    *,
+    shell_builtins_available: bool = True,
+) -> Result:
     if not argv:
         return ask("empty command")
     try:
@@ -2589,7 +2635,11 @@ def _classify_argv(argv: Sequence[str], config: Config) -> Result:
 
     command_word = argv[0]
     command = os.path.basename(command_word)
-    trusted, detail = _trusted_executable(command_word, config)
+    trusted, detail = _trusted_executable(
+        command_word,
+        config,
+        shell_builtins_available=shell_builtins_available,
+    )
     if not trusted:
         return ask(detail)
     environment_issue = _ambient_environment_issue(

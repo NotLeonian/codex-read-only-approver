@@ -24,6 +24,7 @@ The hook:
 - rejects output redirection except output discarded to `/dev/null`;
 - rejects command substitution, process substitution, unquoted glob/brace expansion, heredocs, backgrounding, grouping, and unknown shell syntax;
 - verifies executable paths against trusted installation roots by default;
+- rejects relative or empty `PATH` components before resolving bare executables when path verification is enabled;
 - requires a recognized native ELF or Mach-O executable when path verification is enabled, leaving interpreted wrapper scripts for human approval;
 - handles argument-sensitive commands including `sed`, `git`, `find`, `fd`, `rg`, `uniq`, `base64`, `yq`, `tar`, compressors, `unzip`, `sysctl`, `date`, `hostname`, `file`, `tree`, `nm`, and `objdump`;
 - remains silent for a write-capable or ambiguous command, preserving the normal human approval flow;
@@ -31,6 +32,7 @@ The hook:
   The human can still approve an operation that the classifier does not understand.
 
 The table below assumes the recommended launch environment, including `GIT_PAGER=cat` and `GIT_NO_LAZY_FETCH=1`.
+Every automatically allowed Git example also carries the required `-c core.fsmonitor=` override.
 
 | Command | Result |
 |---|---|
@@ -38,9 +40,9 @@ The table below assumes the recommended launch environment, including `GIT_PAGER
 | `sed 's/old/new/g' file` | automatic allow |
 | `sed -i 's/old/new/g' file` | human approval |
 | `sed 'w output.txt' file` | human approval |
-| `GIT_OPTIONAL_LOCKS=0 git status --short` | automatic allow |
-| `git status --short` with `GIT_OPTIONAL_LOCKS` unset | human approval (Git may refresh the index) |
-| `git diff --no-ext-diff --no-textconv --stat \| sed -n '1,20p'` | automatic allow |
+| `GIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor= status --short` | automatic allow |
+| `git -c core.fsmonitor= status --short` with `GIT_OPTIONAL_LOCKS` unset | human approval (Git may refresh the index) |
+| `git -c core.fsmonitor= diff --no-ext-diff --no-textconv --stat \| sed -n '1,20p'` | automatic allow |
 | `git branch -f name HEAD` | human approval |
 | `uniq input output` | human approval (second operand is an output file) |
 | `sort input` | human approval (may spill to temporary files) |
@@ -124,19 +126,23 @@ Start from [`config.json.example`](config.json.example).
 
 `verify_executable_paths` and `verify_ambient_environment` should normally remain `true`.
 Path verification deliberately does not auto-approve shebang or other text executables, even inside a trusted root, because their interpreter and transitive helper execution cannot be proven from the outer command.
+Each `PATH` component used to resolve a bare executable must be non-empty and absolute; use an absolute executable path or clean `PATH` when that condition is not met.
 Ambient checks reject option-injecting variables such as `GIT_EXTERNAL_DIFF`, `RIPGREP_CONFIG_PATH` (unless `rg --no-config` is used), `TAR_OPTIONS`, and compressor/archive option variables.
 
 ### Additional Git conditions
-Even nominally read-only Git commands may launch a pager, lazy-fetch partial-clone objects, refresh the index, or execute a configured textconv filter.
+Even nominally read-only Git commands may launch a pager, lazy-fetch partial-clone objects, refresh the index, or execute configured FSMonitor and textconv helpers.
 The hook therefore requires:
 
+- `git -c core.fsmonitor= ...` for every Git command other than `git --version`;
 - `GIT_PAGER=cat` or `git --no-pager`;
 - `GIT_NO_LAZY_FETCH=1` or `git --no-lazy-fetch`;
 - for `git status`, also `GIT_OPTIONAL_LOCKS=0` or `git --no-optional-locks`; and
 - for `git diff`, ordinary `git show`, and patch-producing `git log` / `git stash show` / `git reflog show`, both `--no-ext-diff` and `--no-textconv`.
 
-The recommended launch environment supplies the first two conditions once for the entire Codex process.
-A direct blob read such as `git show HEAD:path` does not generate a diff and therefore does not require these two diff-helper flags.
+The empty FSMonitor value is deliberate.
+Unlike `core.fsmonitor=false`, which Git 2.35.1 and earlier interpret as a hook pathname, an empty value disables the configured hook across old and current Git versions.
+The recommended launch environment supplies the pager and lazy-fetch conditions once for the entire Codex process, while each command must carry the FSMonitor override.
+A direct blob read such as `git -c core.fsmonitor= show HEAD:path` does not generate a diff and therefore does not require the two diff-helper flags.
 Version-sensitive shorthand such as `git branch -l` and `git tag -l` is deliberately sent to human review; use explicit `--list` forms.
 
 Add an executable root only when:
@@ -165,7 +171,7 @@ For classifier tests only, executable path verification can be disabled:
 
 ```bash
 ./codex_read_only_approver.py --no-path-check --check \
-  "GIT_PAGER=cat GIT_NO_LAZY_FETCH=1 GIT_OPTIONAL_LOCKS=0 git status"
+  "GIT_PAGER=cat GIT_NO_LAZY_FETCH=1 GIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor= status"
 ```
 
 Do not put `--no-path-check` in the production hook definition unless you explicitly accept PATH and executable-substitution risk.
@@ -175,7 +181,7 @@ Do not put `--no-path-check` in the production hook definition unless you explic
 
 - separate inspection and mutation into different tool calls;
 - quote patterns rather than rely on shell glob expansion;
-- use `GIT_OPTIONAL_LOCKS=0` and `GIT_NO_LAZY_FETCH=1` for read-only Git inspection;
+- use `git -c core.fsmonitor= ...`, `GIT_OPTIONAL_LOCKS=0`, and `GIT_NO_LAZY_FETCH=1` for read-only Git inspection;
 - force the Git pager to `cat` and add `--no-ext-diff --no-textconv` to diff-producing commands;
 - use `apply_patch` or a separate explicit command for edits;
 - avoid dynamic shell constructs in inspection commands.

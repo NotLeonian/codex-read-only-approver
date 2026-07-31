@@ -12,6 +12,7 @@ For commands that reach Codex `PermissionRequest`, the hook attempts to ensure t
 - shell grouping, backgrounding, heredocs, and unsupported syntax;
 - unquoted glob or brace expansion that could inject option-looking filenames;
 - known command options that execute helpers, editors, pagers, plugins, or subprocesses;
+- unneutralized repository-configured Git FSMonitor hooks;
 - known write, delete, configuration mutation, archive extraction, or system-setting operations;
 - executables outside configured trusted installation roots; and
 - interpreted or unrecognized executable formats, whose transitive interpreter and helper execution cannot be verified.
@@ -27,7 +28,7 @@ Examples include:
 - merely reading a file can update access-time metadata depending on the filesystem and mount options;
 - programs may create caches, temporary files, telemetry, history, lock files, or database state internally;
 - commands that may legitimately spill to temporary files, such as `sort`, are deliberately not auto-approved;
-- Git may invoke configured FSMonitor, attribute, signature, or other repository-controlled helpers that are outside this classifier's complete knowledge;
+- Git may invoke configured attribute, signature, or other repository-controlled helpers that are outside this classifier's complete knowledge;
 - partial-clone Git reads may lazy-fetch and store missing objects unless lazy fetch is disabled;
 - a nominal read can access a special device or filesystem with side effects;
 - shell startup code, aliases, functions, or a changed PATH can alter which implementation runs;
@@ -77,10 +78,12 @@ GIT_PAGER=cat \
 codex -s danger-full-access -a untrusted -c approvals_reviewer=user --search
 ```
 
-The hook requires the pager and lazy fetch to be explicitly disabled for Git commands, and optional locks to be disabled before auto-approving `git status`.
+The hook requires configured FSMonitor execution, the pager, and lazy fetch to be explicitly disabled for Git commands, and optional locks to be disabled before auto-approving `git status`.
 Diff-producing commands also require both `--no-ext-diff` and `--no-textconv`.
 It accepts the same environment variables as explicit per-command prefixes.
-These settings reduce pager execution, on-demand object fetches, optional index writes, and configured external-diff and text-conversion execution, but they do not turn Git or repository configuration into a formally verified read-only system.
+Every Git command other than `git --version` must use `git -c core.fsmonitor= ...`.
+The empty value works across Git versions; `core.fsmonitor=false` is not accepted because Git 2.35.1 and earlier interpret `false` as a hook pathname.
+These settings prevent configured FSMonitor execution and reduce pager execution, on-demand object fetches, optional index writes, and configured external-diff and text-conversion execution, but they do not turn Git or repository configuration into a formally verified read-only system.
 
 ## Fail-closed behavior
 - malformed hook JSON: no decision;

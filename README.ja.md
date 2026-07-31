@@ -25,12 +25,14 @@ codex -s danger-full-access -a untrusted -c approvals_reviewer=user --search
 - `/dev/null` への破棄を除き、出力リダイレクトを承認しない
 - コマンド置換、プロセス置換、引用符で囲まれていない glob やブレースの展開、heredoc、バックグラウンド実行、グループ化、未知のシェル構文を承認しない
 - 既定で実行ファイルの実体が信頼済みのインストール先にあるか確認する
+- 実行ファイルの確認が有効な場合、パスを含まない名前で実行ファイルを指定すると、`PATH` に相対パスを示す要素または空の要素が含まれていれば解決を拒否する
 - 実行ファイルの確認が有効な場合は、認識可能なネイティブ ELF または Mach-O だけを自動承認し、インタープリターで動くラッパースクリプトは人間による承認へ回す
 - `sed`、`git`、`find`、`fd`、`rg`、`uniq`、`base64`、`yq`、`tar`、各種圧縮コマンド、`unzip`、`sysctl`、`date`、`hostname`、`file`、`tree`、`nm`、`objdump` を引数も含めて判定する
 - 書き込み可能または曖昧なコマンドでは何も出力せず、通常どおり人間による承認を求める
 - 自動的な拒否は行わないため、分類器が理解しない操作でも人間が承認できる
 
 以下の表は、冒頭で推奨した起動環境（`GIT_PAGER=cat` と `GIT_NO_LAZY_FETCH=1` を含む）を前提にしています。
+自動承認される Git の例には、必須の `-c core.fsmonitor=` も付けています。
 
 | コマンド | 結果 |
 |---|---|
@@ -38,11 +40,11 @@ codex -s danger-full-access -a untrusted -c approvals_reviewer=user --search
 | `sed 's/old/new/g' file` | 自動承認 |
 | `sed -i 's/old/new/g' file` | 人間による承認 |
 | `sed 'w output.txt' file` | 人間による承認 |
-| `GIT_OPTIONAL_LOCKS=0 git status --short` | 自動承認 |
-| `git status --short`（`GIT_OPTIONAL_LOCKS` が未設定） | 人間による承認（Git がインデックスを更新する可能性） |
-| `git diff --no-ext-diff --no-textconv --stat \| sed -n '1,20p'` | 自動承認 |
+| `GIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor= status --short` | 自動承認 |
+| `git -c core.fsmonitor= status --short`（`GIT_OPTIONAL_LOCKS` が未設定） | 人間による承認（Git がインデックスを更新する可能性） |
+| `git -c core.fsmonitor= diff --no-ext-diff --no-textconv --stat \| sed -n '1,20p'` | 自動承認 |
 | `git branch -f name HEAD` | 人間による承認 |
-| `uniq input output` | 人間による承認（2 番目のファイル引数は出力先） |
+| `uniq input output` | 人間による承認（2 番目の引数は出力先） |
 | `sort input` | 人間による承認（内部で一時ファイルに書き出す可能性） |
 | `cat input \| tee output` | 人間による承認 |
 | `rg TODO . > matches.txt` | 人間による承認 |
@@ -68,7 +70,7 @@ install -m 0644 codex-read-only-approver.rules.example \
   ~/.codex/rules/codex-read-only-approver.rules
 ```
 
-このルールは、対応しているコマンドを自動許可するものではありません。
+このルールは、対応しているコマンドを自動的に許可するものではありません。
 該当するコマンドを必ず `PermissionRequest` に送ります。
 hook が `allow` を返さなければ、Codex は通常どおり人間に承認を求めます。
 hook を使わない Codex セッションでもルールは読み込まれるため、その場合は承認の要求が増えます。
@@ -123,28 +125,34 @@ hook は次の順序で設定を読み込みます。
 ```
 
 通常、`verify_executable_paths` と `verify_ambient_environment` は `true` のままにします。
-実行ファイルの確認では、信頼済みルート内であっても、shebang 付きまたはその他のテキスト実行ファイルを意図的に自動承認しません。
+実行ファイルの確認では、信頼済みのルート内にあっても、shebang 付きのファイルなど、テキスト形式の実行ファイルを意図的に自動承認しません。
 外側のコマンドだけからは、そのインタープリターや推移的に実行されるヘルパーを証明できないためです。
-後者では `GIT_EXTERNAL_DIFF`、`RIPGREP_CONFIG_PATH`（`rg --no-config` の使用時を除く）、`TAR_OPTIONS`、圧縮・展開コマンド用のオプション環境変数などを検出します。
+実行ファイルを名前だけで指定する場合、検索に使う `PATH` の各要素は、空でない絶対パスでなければなりません。
+この条件を満たさない場合は、実行ファイルを絶対パスで指定するか、`PATH` の設定を修正してください。
+`verify_ambient_environment` では、`GIT_EXTERNAL_DIFF`、`RIPGREP_CONFIG_PATH`（`rg --no-config` の使用時を除く）、`TAR_OPTIONS` のほか、圧縮・展開コマンドにオプションを渡す環境変数などを検出します。
 
 ### Git の追加条件
-Git は読み取り用のサブコマンドでも、pager の起動、partial clone からの lazy fetch、インデックスの更新、textconv フィルターの実行などを行う可能性があります。
+Git は読み取り用のサブコマンドでも、pager の起動、partial clone からの lazy fetch、インデックスの更新、FSMonitor として設定されたプログラムや textconv 用のヘルパーの実行などを行う可能性があります。
 そのため、この hook は次を要求します。
 
+- `git --version` 以外のすべての Git コマンドで `git -c core.fsmonitor= ...`
 - `GIT_PAGER=cat` または `git --no-pager`
 - `GIT_NO_LAZY_FETCH=1` または `git --no-lazy-fetch`
 - `git status` では、さらに `GIT_OPTIONAL_LOCKS=0` または `git --no-optional-locks`
 - `git diff`、通常の `git show`、patch を表示する `git log` / `git stash show` / `git reflog show` では `--no-ext-diff` と `--no-textconv` の両方
 
-起動例の環境変数を使えば、各 Git コマンドに最初の 2 項目を繰り返す必要はありません。
-リポジトリ内の blob を直接読む `git show HEAD:path` は diff を生成しないため、diff ヘルパーを無効にするこの 2 つのオプションは要求しません。
+FSMonitor に空の値を指定しているのは意図的です。
+Git 2.35.1 以前では `core.fsmonitor=false` が hook のパス名として解釈されますが、値を空にすれば、旧版と現行版のどちらでも設定された hook を無効化できます。
+冒頭の起動例にある環境変数を設定すれば、pager と lazy fetch に関する指定を各コマンドで繰り返す必要はありません。
+ただし、FSMonitor を無効にする `-c core.fsmonitor=` は各コマンドに必要です。
+リポジトリ内の blob を直接読む `git -c core.fsmonitor= show HEAD:path` は diff を生成しないため、`--no-ext-diff` と `--no-textconv` は必要ありません。
 バージョンによって意味が変化する可能性がある短縮形 `git branch -l` と `git tag -l` は、意図的に人間による承認へ回します。
 明示的な `--list` を使用してください。
 
 実行ファイルのルートを追加するのは、次の両方を満たす場合に限定してください。
 
 - 自動承認の対象にしたいコマンドの実行に必要である
-- そのディレクトリを、別途人間が承認する書き込み操作なしには Codex が変更できない
+- Codex がそのディレクトリを変更するには、別途、人間の承認が必要である
 
 `~/.local/bin`、`~/.cargo/bin`、言語マネージャーの shim、プロジェクト内の `node_modules/.bin` など、ユーザーが書き込める場所を追加すると、実行ファイルの同一性を確認する仕組みが弱くなります。
 
@@ -156,18 +164,18 @@ Codex を起動せずに判定できます。
 ./codex_read_only_approver.py --check "sed -i 's/a/b/' file"
 ```
 
-想定出力：
+想定される出力：
 
 ```text
 ALLOW: sed program contains no write or execute command
 ASK: segment 1: sed in-place mode writes files
 ```
 
-分類器をテストする場合に限り、実行ファイルのパス確認を無効化できます。
+分類器をテストする場合に限り、実行ファイルのパスを確認する処理を無効にできます。
 
 ```bash
 ./codex_read_only_approver.py --no-path-check --check \
-  "GIT_PAGER=cat GIT_NO_LAZY_FETCH=1 GIT_OPTIONAL_LOCKS=0 git status"
+  "GIT_PAGER=cat GIT_NO_LAZY_FETCH=1 GIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor= status"
 ```
 
 PATH や実行ファイルの差し替えによるリスクを明示的に許容しない限り、本番の hook の定義には `--no-path-check` を入れないでください。
@@ -177,7 +185,7 @@ PATH や実行ファイルの差し替えによるリスクを明示的に許容
 
 - 読み取り操作と変更操作を別々の tool call に分ける
 - shell の glob に頼らず、パターンを引用符で囲む
-- Git の読み取り専用操作では `GIT_OPTIONAL_LOCKS=0` と `GIT_NO_LAZY_FETCH=1` を付ける
+- Git で読み取り専用の操作を行う場合は `git -c core.fsmonitor= ...`、`GIT_OPTIONAL_LOCKS=0`、`GIT_NO_LAZY_FETCH=1` を使う
 - Git の pager を `cat` に固定し、diff を生成するコマンドでは `--no-ext-diff --no-textconv` を付ける
 - 編集には `apply_patch` を使うか、変更を行うコマンドを明示的に別途実行する
 - 読み取り操作では動的なシェル構文を使わない
@@ -189,7 +197,7 @@ PATH や実行ファイルの差し替えによるリスクを明示的に許容
 python3 -m unittest -v
 ```
 
-読み取り専用コマンドを扱う正常系、書き込み可能なコマンドや動的なシェル構文を扱う異常系、Codex hook の出力仕様、不正な JSON、読み取り用コマンドに危険な接尾辞を付けたケースを検証しています。
+読み取り専用のコマンドを扱う正常系、書き込み可能なコマンドや動的なシェル構文を扱う異常系、Codex hook の出力仕様、不正な JSON、読み取り用のコマンドに危険な接尾辞を付けたケースを検証しています。
 
 CI では Ubuntu、macOS、Windows 上でテストと Python の品質チェックを実行します。
 Windows の runner では、ネイティブ環境で自動承認しないことも検証しますが、これは PowerShell コマンドの分類に対応していることを意味しません。

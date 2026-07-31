@@ -879,7 +879,10 @@ def _classify_env(argv: Sequence[str], config: Config) -> Result:
     if len(argv) == 1:
         return allow("environment listing")
     i = 1
-    while i < len(argv) and argv[i] == "--":
+    # Only the first `--` terminates env's options. A following `--` is the
+    # command operand and must be classified like any other executable name.
+    options_terminated = i < len(argv) and argv[i] == "--"
+    if options_terminated:
         i += 1
     assignments: list[str] = []
     while i < len(argv) and _ASSIGNMENT_RE.fullmatch(argv[i]):
@@ -889,7 +892,7 @@ def _classify_env(argv: Sequence[str], config: Config) -> Result:
         i += 1
     if i == len(argv):
         return allow("environment listing with safe assignments")
-    if argv[i].startswith("-"):
+    if not options_terminated and argv[i].startswith("-"):
         return ask(f"unsupported env option: {argv[i]}")
     # Preserve safe assignments so the inner classifier can reason about their
     # effective values (for example GIT_OPTIONAL_LOCKS=0).
@@ -1783,17 +1786,14 @@ def _classify_git(
         effective_env("GIT_NO_LAZY_FETCH") == "1"
         or "--no-lazy-fetch" in global_options.flags
     )
-    if "GIT_PAGER" in effective_environment or "GIT_PAGER" in os.environ:
-        pager_value = effective_env("GIT_PAGER")
-        pager_is_explicit = True
-    elif "PAGER" in effective_environment or "PAGER" in os.environ:
-        pager_value = effective_env("PAGER")
-        pager_is_explicit = True
-    else:
-        pager_value = ""
-        pager_is_explicit = False
+    # PAGER is lower precedence than core.pager, so it cannot guarantee that a
+    # configured pager is neutralized. GIT_PAGER overrides both.
+    git_pager_is_explicit = (
+        "GIT_PAGER" in effective_environment or "GIT_PAGER" in os.environ
+    )
+    git_pager_value = effective_env("GIT_PAGER")
     pager_disabled = "--no-pager" in global_options.flags or (
-        pager_is_explicit and _safe_pager_value(pager_value)
+        git_pager_is_explicit and _safe_pager_value(git_pager_value)
     )
     if not pager_disabled:
         return ask(
@@ -2511,13 +2511,8 @@ def _classify_binutils(argv: Sequence[str]) -> Result:
 
 
 def _safe_pager_value(value: str) -> bool:
-    if not value:
-        return True
-    try:
-        parts = value.split()
-    except ValueError:
-        return False
-    return parts in [["cat"], ["/bin/cat"], ["/usr/bin/cat"]]
+    # Git recognizes only these exact values as pager-disabling sentinels.
+    return value in {"", "cat"}
 
 
 def _ambient_environment_issue(
@@ -2536,6 +2531,17 @@ def _ambient_environment_issue(
         if name in overrides:
             return overrides[name]
         return os.environ.get(name, "")
+
+    def env_is_set(name: str) -> bool:
+        return name in overrides or name in os.environ
+
+    # LD_PROFILE writes to a default directory on older glibc; newer releases
+    # require LD_PROFILE_OUTPUT. LD_DEBUG_OUTPUT is active only when
+    # dynamic-loader diagnostics have also been enabled.
+    if env_value("LD_PROFILE"):
+        return "ambient LD_PROFILE can write dynamic-loader profiling data"
+    if env_value("LD_DEBUG") and env_is_set("LD_DEBUG_OUTPUT"):
+        return "ambient LD_DEBUG/LD_DEBUG_OUTPUT can write dynamic-loader diagnostics"
 
     # These variables can arrange for code to run before or inside an otherwise
     # trusted executable. They invalidate command-name and executable-path checks.

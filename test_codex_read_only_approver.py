@@ -163,6 +163,7 @@ ALLOW_CASES = {
     "command wrapper": "command -- git -c core.fsmonitor= --no-optional-locks status --short",
     "command lookup": "command -v git",
     "env wrapper": "env LC_ALL=C GIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor= status --short",
+    "env option terminator": "env -- cat /dev/null",
     "comment": "GIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor= status # read only",
     "literal dollar in sed": "sed -n '$p' README.md",
 }
@@ -432,6 +433,7 @@ ASK_CASES = {
     "tree output": "tree -o listing.txt .",
     "timeout unsafe": "timeout 5 rm file",
     "env unsafe": "env LD_PRELOAD=evil.so git status",
+    "env repeated option terminator": "env -- -- cat /dev/null",
     "shell": "sh -c 'git status'",
     "python": "python3 -c 'print(1)'",
     "node": "node -e 'console.log(1)'",
@@ -581,6 +583,22 @@ class ClassificationTests(unittest.TestCase):
     def test_dangerous_ambient_environment_fails_closed(self) -> None:
         cases = [
             ({"LD_PRELOAD": "/tmp/evil.so"}, "cat README.md"),
+            ({"LD_PROFILE": "libc.so.6"}, "cat /dev/null"),
+            (
+                {
+                    "LD_PROFILE": "libc.so.6",
+                    "LD_PROFILE_OUTPUT": "/tmp/profile",
+                },
+                "cat /dev/null",
+            ),
+            (
+                {"LD_DEBUG": "libs", "LD_DEBUG_OUTPUT": "/tmp/loader-debug"},
+                "cat /dev/null",
+            ),
+            (
+                {"LD_DEBUG": "libs", "LD_DEBUG_OUTPUT": ""},
+                "cat /dev/null",
+            ),
             ({"BASH_ENV": "/tmp/evil.sh"}, "cat README.md"),
             ({"BASH_FUNC_cat%%": "() { touch owned; }"}, "cat README.md"),
             ({"PYTHONPATH": "/tmp/evil"}, "yq '.x' file.yaml"),
@@ -601,6 +619,21 @@ class ClassificationTests(unittest.TestCase):
                 ):
                     result = hook.classify(command, CONFIG)
                 self.assertEqual(hook.Verdict.ASK, result.verdict)
+
+    def test_inactive_dynamic_loader_output_variables_are_allowed(self) -> None:
+        environments = (
+            {"LD_PROFILE_OUTPUT": "/tmp/profile"},
+            {"LD_DEBUG": "libs"},
+            {"LD_DEBUG_OUTPUT": "/tmp/loader-debug"},
+            {"LD_DEBUG_OUTPUT": ""},
+        )
+        for environment in environments:
+            with self.subTest(environment=environment):
+                with mock.patch.dict(
+                    os.environ, {**TEST_ENV, **environment}, clear=True
+                ):
+                    result = hook.classify("cat /dev/null", CONFIG)
+                self.assertEqual(hook.Verdict.ALLOW, result.verdict, result.reason)
 
     def test_safe_inline_environment_overrides_unsafe_ambient_value(self) -> None:
         with mock.patch.dict(
@@ -653,6 +686,52 @@ class ClassificationTests(unittest.TestCase):
             result = hook.classify("git -c core.fsmonitor= log --oneline -1", CONFIG)
         self.assertEqual(hook.Verdict.ASK, result.verdict)
         self.assertIn("lazy fetch", result.reason.lower())
+
+    def test_git_only_accepts_exact_git_pager_sentinels(self) -> None:
+        command = "git -c core.fsmonitor= log --oneline -1"
+        base_environment = {"GIT_NO_LAZY_FETCH": "1"}
+
+        for value in ("", "cat"):
+            with self.subTest(GIT_PAGER=value):
+                with mock.patch.dict(
+                    os.environ,
+                    {**base_environment, "GIT_PAGER": value},
+                    clear=True,
+                ):
+                    result = hook.classify(command, CONFIG)
+                self.assertEqual(hook.Verdict.ALLOW, result.verdict, result.reason)
+
+        unsafe_environments = (
+            {"GIT_PAGER": " cat "},
+            {"GIT_PAGER": "\tcat"},
+            {"GIT_PAGER": "cat\n"},
+            {"GIT_PAGER": "/bin/cat"},
+            {"GIT_PAGER": "/usr/bin/cat"},
+            {"PAGER": ""},
+            {"PAGER": "cat"},
+            {"PAGER": " cat "},
+        )
+        for environment in unsafe_environments:
+            with self.subTest(environment=environment):
+                with mock.patch.dict(
+                    os.environ,
+                    {**base_environment, **environment},
+                    clear=True,
+                ):
+                    result = hook.classify(command, CONFIG)
+                self.assertEqual(hook.Verdict.ASK, result.verdict)
+                self.assertIn("pager", result.reason.lower())
+
+    def test_git_pager_sentinel_check_is_independent_of_ambient_check(self) -> None:
+        config = hook.Config(False, (), 65_536, verify_ambient_environment=False)
+        with mock.patch.dict(
+            os.environ,
+            {"GIT_NO_LAZY_FETCH": "1", "GIT_PAGER": " cat "},
+            clear=True,
+        ):
+            result = hook.classify("git -c core.fsmonitor= log --oneline -1", config)
+        self.assertEqual(hook.Verdict.ASK, result.verdict)
+        self.assertIn("pager", result.reason.lower())
 
     def test_git_counts_only_parsed_global_safety_flags(self) -> None:
         cases = (

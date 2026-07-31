@@ -921,6 +921,13 @@ def _classify_rg(argv: Sequence[str]) -> Result:
     return allow("ripgrep search")
 
 
+def _rg_config_is_explicitly_disabled(argv: Sequence[str]) -> bool:
+    # A later --no-config token may be another option's value or an operand
+    # after --. Requiring the leading form avoids duplicating ripgrep's evolving
+    # option parser while still providing an unambiguous safe invocation.
+    return len(argv) > 1 and argv[1] == "--no-config"
+
+
 def _classify_fd(argv: Sequence[str]) -> Result:
     dangerous = {"-x", "--exec", "-X", "--exec-batch"}
     for arg in argv[1:]:
@@ -1349,7 +1356,16 @@ def _git_reject_common_options(args: Sequence[str]) -> str | None:
     return None
 
 
-def _consume_git_global_options(argv: Sequence[str]) -> tuple[int | None, str | None]:
+@dataclass(frozen=True)
+class _GitGlobalOptions:
+    subcommand_index: int
+    flags: frozenset[str]
+    fsmonitor_disabled: bool
+
+
+def _consume_git_global_options(
+    argv: Sequence[str],
+) -> tuple[_GitGlobalOptions | None, str | None]:
     i = 1
     value_options = {"-C", "--git-dir", "--work-tree", "--namespace", "--super-prefix"}
     safe_flags = {
@@ -1363,10 +1379,18 @@ def _consume_git_global_options(argv: Sequence[str]) -> tuple[int | None, str | 
         "--icase-pathspecs",
         "--bare",
     }
+    parsed_flags: set[str] = set()
+    fsmonitor_disabled = False
+
+    def parsed(index: int) -> _GitGlobalOptions:
+        return _GitGlobalOptions(index, frozenset(parsed_flags), fsmonitor_disabled)
+
     while i < len(argv):
         arg = argv[i]
         if arg == "--":
-            return (i + 1 if i + 1 < len(argv) else None), None
+            if i + 1 >= len(argv):
+                return None, "git is missing a subcommand"
+            return parsed(i + 1), None
         if arg in value_options:
             if i + 1 >= len(argv):
                 return None, f"git global option requires a value: {arg}"
@@ -1380,6 +1404,7 @@ def _consume_git_global_options(argv: Sequence[str]) -> tuple[int | None, str | 
             i += 1
             continue
         if arg in safe_flags:
+            parsed_flags.add(arg)
             i += 1
             continue
         if arg == "-c":
@@ -1387,12 +1412,13 @@ def _consume_git_global_options(argv: Sequence[str]) -> tuple[int | None, str | 
                 return None, "git global option requires a value: -c"
             if argv[i + 1] != "core.fsmonitor=":
                 return None, "git global option can alter execution: -c"
+            fsmonitor_disabled = True
             i += 2
             continue
         if arg == "--version":
             if i + 1 != len(argv):
                 return None, "git --version does not accept trailing arguments"
-            return -1, None
+            return parsed(-1), None
         if arg in {
             "--config-env",
             "--exec-path",
@@ -1402,7 +1428,7 @@ def _consume_git_global_options(argv: Sequence[str]) -> tuple[int | None, str | 
             return None, f"git global option can alter execution: {arg}"
         if arg.startswith("-"):
             return None, f"unsupported git global option: {arg}"
-        return i, None
+        return parsed(i), None
     return None, "git is missing a subcommand"
 
 
@@ -1710,26 +1736,24 @@ def _git_show_is_blob_read(args: Sequence[str]) -> bool:
 def _classify_git(
     argv: Sequence[str], inline_environment: dict[str, str] | None = None
 ) -> Result:
-    index, error = _consume_git_global_options(argv)
+    global_options, error = _consume_git_global_options(argv)
     if error:
         return ask(error)
+    if global_options is None:
+        return ask("git global options could not be parsed")
+    index = global_options.subcommand_index
     if index == -1:
         return allow("git version query")
-    if index is None or index >= len(argv):
+    if index >= len(argv):
         return ask("git is missing a subcommand")
     subcommand = argv[index]
     args = list(argv[index + 1 :])
     effective_environment = inline_environment or {}
-    global_args = list(argv[1:index])
 
     def effective_env(name: str) -> str:
         return effective_environment.get(name, os.environ.get(name, ""))
 
-    fsmonitor_disabled = any(
-        global_args[i : i + 2] == ["-c", "core.fsmonitor="]
-        for i in range(len(global_args) - 1)
-    )
-    if not fsmonitor_disabled:
+    if not global_options.fsmonitor_disabled:
         return ask(
             "Git FSMonitor execution is not explicitly disabled; "
             "use git -c core.fsmonitor= ..."
@@ -1737,10 +1761,11 @@ def _classify_git(
 
     optional_locks_disabled = (
         effective_env("GIT_OPTIONAL_LOCKS") == "0"
-        or "--no-optional-locks" in global_args
+        or "--no-optional-locks" in global_options.flags
     )
     lazy_fetch_disabled = (
-        effective_env("GIT_NO_LAZY_FETCH") == "1" or "--no-lazy-fetch" in global_args
+        effective_env("GIT_NO_LAZY_FETCH") == "1"
+        or "--no-lazy-fetch" in global_options.flags
     )
     if "GIT_PAGER" in effective_environment or "GIT_PAGER" in os.environ:
         pager_value = effective_env("GIT_PAGER")
@@ -1751,7 +1776,7 @@ def _classify_git(
     else:
         pager_value = ""
         pager_is_explicit = False
-    pager_disabled = "--no-pager" in global_args or (
+    pager_disabled = "--no-pager" in global_options.flags or (
         pager_is_explicit and _safe_pager_value(pager_value)
     )
     if not pager_disabled:
@@ -1888,83 +1913,76 @@ def _classify_git(
     return ask(f"git subcommand is not in the read-only allowlist: {subcommand}")
 
 
-def _parse_tar_short_bundle(arg: str) -> tuple[bool, set[str], str | None]:
-    """Parse the deliberately small tar short-option subset used for listing."""
+@dataclass(frozen=True)
+class _TarOptionBundle:
+    found_list: bool
+    compression: frozenset[str]
+    value_options: tuple[tuple[str, str | None], ...]
 
-    bundle = arg.removeprefix("-")
+
+def _parse_tar_option_bundle(
+    arg: str, *, old_style: bool
+) -> tuple[_TarOptionBundle | None, str | None]:
+    """Parse the deliberately small tar option-letter subset used for listing."""
+
+    bundle = arg if old_style else arg.removeprefix("-")
     if not bundle:
-        return False, set(), "empty tar option bundle"
+        return None, "empty tar option bundle"
     safe_letters = set("tvzjJZfC")
     write_letters = set("cxruAd")
     compression: set[str] = set()
+    value_options: list[tuple[str, str | None]] = []
     found_list = False
     i = 0
     while i < len(bundle):
         letter = bundle[i]
         if letter in write_letters:
-            return False, compression, f"tar mode can modify files or archives: {arg}"
+            return None, f"tar mode can modify files or archives: {arg}"
         if letter not in safe_letters:
-            return (
-                False,
-                compression,
-                f"unsupported tar short option in list mode: -{letter}",
-            )
+            return None, f"unsupported tar short option in list mode: -{letter}"
         if letter == "t":
             found_list = True
         elif letter in {"z", "j", "J", "Z"}:
             compression.add(letter)
-        elif letter in {"f", "C"} and i + 1 < len(bundle):
-            # Attached remainder is the option value, not more option letters.
-            break
+        elif letter in {"f", "C"}:
+            if old_style:
+                # Traditional tar syntax takes values for each option letter
+                # from subsequent argv words, in option-letter order.
+                value_options.append((letter, None))
+            else:
+                # In short-option syntax, the first value-taking option consumes
+                # the attached remainder (or the next argv word) and ends the
+                # bundle.
+                value_options.append((letter, bundle[i + 1 :] or None))
+                break
         i += 1
-    return found_list, compression, None
+    return (
+        _TarOptionBundle(
+            found_list,
+            frozenset(compression),
+            tuple(value_options),
+        ),
+        None,
+    )
 
 
-def _tar_archive_paths(args: Sequence[str]) -> tuple[list[str], bool, str | None]:
-    """Extract explicit tar archive names from supported short/long syntax."""
-
-    archives: list[str] = []
-    force_local = False
-    i = 0
-    while i < len(args):
-        arg = args[i]
-        if arg == "--force-local":
-            force_local = True
-            i += 1
-            continue
-        if arg == "--file":
-            if i + 1 >= len(args):
-                return archives, force_local, "tar --file requires an archive name"
-            archives.append(args[i + 1])
-            i += 2
-            continue
-        if arg.startswith("--file="):
-            value = arg.split("=", 1)[1]
-            if not value:
-                return archives, force_local, "tar --file has an empty archive name"
+def _consume_tar_bundle_values(
+    parsed: _TarOptionBundle,
+    args: Sequence[str],
+    index: int,
+    archives: list[str],
+) -> tuple[int, str | None]:
+    for letter, attached in parsed.value_options:
+        value = attached
+        if value is None:
+            if index >= len(args):
+                description = "an archive name" if letter == "f" else "a directory"
+                return index, f"tar -{letter} requires {description}"
+            value = args[index]
+            index += 1
+        if letter == "f":
             archives.append(value)
-            i += 1
-            continue
-
-        is_old_style_bundle = (
-            i == 0 and not arg.startswith("-") and bool(re.fullmatch(r"[A-Za-z]+", arg))
-        )
-        if arg.startswith("-") or is_old_style_bundle:
-            bundle = arg.removeprefix("-")
-            if "f" in bundle:
-                index = bundle.index("f")
-                attached = bundle[index + 1 :]
-                if attached:
-                    archives.append(attached)
-                    i += 1
-                    continue
-                if i + 1 >= len(args):
-                    return archives, force_local, "tar -f requires an archive name"
-                archives.append(args[i + 1])
-                i += 2
-                continue
-        i += 1
-    return archives, force_local, None
+    return index, None
 
 
 def _verify_tar_compression_helpers(
@@ -1996,6 +2014,8 @@ def _verify_tar_compression_helpers(
 def _classify_tar(argv: Sequence[str], config: Config) -> Result:
     found_list = False
     compression: set[str] = set()
+    archives: list[str] = []
+    force_local = False
     args = list(argv[1:])
 
     dangerous_long_options = (
@@ -2050,10 +2070,9 @@ def _classify_tar(argv: Sequence[str], config: Config) -> Result:
         "--help",
         "--version",
     }
-    safe_long_values = {
+    required_long_values = {
         "--file",
         "--directory",
-        "--occurrence",
         "--starting-file",
         "--exclude",
         "--exclude-from",
@@ -2063,8 +2082,11 @@ def _classify_tar(argv: Sequence[str], config: Config) -> Result:
         "--quote-chars",
         "--no-quote-chars",
         "--warning",
-        "--checkpoint",
         "--format",
+    }
+    optional_long_values = {
+        "--occurrence",
+        "--checkpoint",
     }
     compression_long = {
         "--gzip": "z",
@@ -2077,31 +2099,22 @@ def _classify_tar(argv: Sequence[str], config: Config) -> Result:
         "--uncompress": "Z",
     }
 
-    exact_safe_long = safe_long_flags | safe_long_values | set(compression_long)
-    abbreviation_candidates = [
-        arg for arg in args if _long_option_name(arg) not in exact_safe_long
-    ]
-    dangerous = _has_long_option_or_abbreviation(
-        abbreviation_candidates, *dangerous_long_options
-    )
-    if dangerous:
-        return ask(f"tar option can write, delete, or execute: {dangerous}")
-
-    if args and not args[0].startswith("-") and re.fullmatch(r"[A-Za-z]+", args[0]):
-        is_list, modes, error = _parse_tar_short_bundle(args[0])
+    i = 0
+    if args and not args[0].startswith("-"):
+        parsed, error = _parse_tar_option_bundle(args[0], old_style=True)
         if error:
             return ask(error)
-        found_list = found_list or is_list
-        compression.update(modes)
+        if parsed is None:
+            return ask("tar traditional options could not be parsed")
+        found_list = parsed.found_list
+        compression.update(parsed.compression)
+        i, error = _consume_tar_bundle_values(parsed, args, 1, archives)
+        if error:
+            return ask(error)
 
-    i = 0
     while i < len(args):
         arg = args[i]
-        if i == 0 and not arg.startswith("-") and re.fullmatch(r"[A-Za-z]+", arg):
-            i += 1
-            continue
         if arg == "--":
-            i += 1
             break
         if arg.startswith("--"):
             name = _long_option_name(arg)
@@ -2114,32 +2127,49 @@ def _classify_tar(argv: Sequence[str], config: Config) -> Result:
             if name in safe_long_flags:
                 if "=" in arg:
                     return ask(f"tar flag does not accept an inline value: {arg}")
+                if name == "--force-local":
+                    force_local = True
                 i += 1
                 continue
-            if name in safe_long_values:
+            if name in required_long_values:
                 if "=" in arg:
-                    if not arg.split("=", 1)[1]:
+                    value = arg.split("=", 1)[1]
+                    if not value:
                         return ask(f"tar option has an empty value: {arg}")
                     i += 1
-                    continue
-                if i + 1 >= len(args):
-                    return ask(f"tar option requires a value: {arg}")
-                i += 2
+                else:
+                    if i + 1 >= len(args):
+                        return ask(f"tar option requires a value: {arg}")
+                    value = args[i + 1]
+                    i += 2
+                if name == "--file":
+                    archives.append(value)
                 continue
+            if name in optional_long_values:
+                if "=" in arg and not arg.split("=", 1)[1]:
+                    return ask(f"tar option has an empty value: {arg}")
+                i += 1
+                continue
+            dangerous = _has_long_option_or_abbreviation([arg], *dangerous_long_options)
+            if dangerous:
+                return ask(f"tar option can write, delete, or execute: {dangerous}")
             return ask(f"unsupported tar long option in list mode: {arg}")
         if arg.startswith("-"):
-            is_list, modes, error = _parse_tar_short_bundle(arg)
+            parsed, error = _parse_tar_option_bundle(arg, old_style=False)
             if error:
                 return ask(error)
-            found_list = found_list or is_list
-            compression.update(modes)
+            if parsed is None:
+                return ask("tar short options could not be parsed")
+            found_list = found_list or parsed.found_list
+            compression.update(parsed.compression)
+            i, error = _consume_tar_bundle_values(parsed, args, i + 1, archives)
+            if error:
+                return ask(error)
+            continue
         i += 1
 
     if not found_list:
         return ask("tar is allowed only in list mode")
-    archives, force_local, archive_error = _tar_archive_paths(args)
-    if archive_error:
-        return ask(archive_error)
     if not force_local:
         for archive in archives:
             if archive != "-" and ":" in archive:
@@ -2583,9 +2613,12 @@ def _ambient_environment_issue(
     if (
         command == "rg"
         and env_value("RIPGREP_CONFIG_PATH")
-        and "--no-config" not in argv[1:]
+        and not _rg_config_is_explicitly_disabled(argv)
     ):
-        return "ambient RIPGREP_CONFIG_PATH can inject helper-executing options; use --no-config"
+        return (
+            "ambient RIPGREP_CONFIG_PATH can inject helper-executing options; "
+            "use rg --no-config ..."
+        )
     if command == "tar":
         if env_value("TAR_OPTIONS"):
             return "ambient TAR_OPTIONS can inject write or helper-executing options"

@@ -104,6 +104,17 @@ ALLOW_CASES = {
     "tar long list": "tar --list --file archive.tar",
     "tar list alphabetic archive": "tar -tf archive",
     "tar compressed list": "tar -ztf archive.tar.gz",
+    "tar traditional list": "tar tf archive.tar",
+    "tar traditional ordered local values": "tar tCf directory archive.tar",
+    "tar force local before remote archive": "tar --force-local -tf host:archive",
+    "tar force local after remote archive": "tar -tf host:archive --force-local",
+    "tar dash short archive value before force local": "tar -tf -- --force-local",
+    "tar dash long archive value before force local": (
+        "tar --list --file -- --force-local"
+    ),
+    "tar dash directory value before forced local remote": (
+        "tar -C -- -tf host:archive --force-local"
+    ),
     "gzip stdout": "gzip -dc archive.gz",
     "gzip split stdout": "gzip -v -c archive.gz",
     "gunzip test": "gunzip -t archive.gz",
@@ -286,6 +297,38 @@ ASK_CASES = {
     "tar files from": "tar -tf archive.tar --files-from names.txt",
     "tar unknown long option": "tar -tf archive.tar --totally-unknown",
     "tar remote archive": "tar -tf host:/srv/archive.tar",
+    "tar post-terminator force local operand": (
+        "tar -tf host:archive -- --force-local"
+    ),
+    "tar long post-terminator force local operand": (
+        "tar --list --file host:archive -- --force-local"
+    ),
+    "tar terminator-looking long option value": (
+        "tar --list --exclude -- --file host:archive"
+    ),
+    "tar force local-looking long option value": (
+        "tar -tf host:archive --exclude --force-local"
+    ),
+    "tar terminator-looking short option value": ("tar -t -C -- -f host:archive"),
+    "tar force local-looking short option value": (
+        "tar -C --force-local -tf host:archive"
+    ),
+    "tar traditional ordered option values": "tar tCf directory host:archive",
+    "tar traditional force local-looking value": ("tar tfC host:archive --force-local"),
+    "tar traditional numeric option": "tar 0 --list -f archive.tar",
+    "tar traditional helper option": "tar I0 evil --list -f archive.tar",
+    "tar checkpoint before compressor helper": (
+        "tar -tf archive.tar --checkpoint -Ievil"
+    ),
+    "tar occurrence before compressor helper": (
+        "tar -tf archive.tar --occurrence -Ievil"
+    ),
+    "tar checkpoint before remote archive": (
+        "tar --list --checkpoint --file host:archive"
+    ),
+    "tar occurrence before remote archive": (
+        "tar --list --occurrence --file host:archive"
+    ),
     "gzip replace": "gzip file.txt",
     "gzip named output": "gzip -cooutput.gz file.txt",
     "gzip option terminator before stdout-looking file": "gzip -- -c victim",
@@ -557,6 +600,42 @@ class ClassificationTests(unittest.TestCase):
         self.assertEqual(hook.Verdict.ASK, result.verdict)
         self.assertIn("lazy fetch", result.reason.lower())
 
+    def test_git_counts_only_parsed_global_safety_flags(self) -> None:
+        cases = (
+            (
+                "git -C --no-pager --no-lazy-fetch -c core.fsmonitor= log --oneline -1",
+                "pager",
+            ),
+            (
+                "git --no-pager -C --no-lazy-fetch -c core.fsmonitor= log --oneline -1",
+                "lazy fetch",
+            ),
+            (
+                (
+                    "git --no-pager --no-lazy-fetch -C --no-optional-locks "
+                    "-c core.fsmonitor= status --short"
+                ),
+                "status may refresh",
+            ),
+        )
+        allowed = (
+            "git --no-pager --no-lazy-fetch -c core.fsmonitor= log --oneline -1",
+            (
+                "git --no-pager --no-lazy-fetch --no-optional-locks "
+                "-c core.fsmonitor= status --short"
+            ),
+        )
+        with mock.patch.dict(os.environ, {}, clear=True):
+            for command, reason_fragment in cases:
+                with self.subTest(command=command):
+                    result = hook.classify(command, CONFIG)
+                    self.assertEqual(hook.Verdict.ASK, result.verdict)
+                    self.assertIn(reason_fragment, result.reason.lower())
+            for command in allowed:
+                with self.subTest(command=command):
+                    result = hook.classify(command, CONFIG)
+                    self.assertEqual(hook.Verdict.ALLOW, result.verdict, result.reason)
+
     def test_tar_ambient_remote_defaults_fail_closed(self) -> None:
         with mock.patch.dict(
             os.environ, {**TEST_ENV, "TAPE": "host:/dev/nst0"}, clear=True
@@ -570,14 +649,25 @@ class ClassificationTests(unittest.TestCase):
             result = hook.classify("tar -tf archive.tar", CONFIG)
         self.assertEqual(hook.Verdict.ASK, result.verdict)
 
-    def test_rg_no_config_neutralizes_ambient_config(self) -> None:
+    def test_only_leading_rg_no_config_neutralizes_ambient_config(self) -> None:
         with mock.patch.dict(
             os.environ,
             {**TEST_ENV, "RIPGREP_CONFIG_PATH": "/tmp/rg.conf"},
             clear=True,
         ):
             result = hook.classify("rg --no-config pattern .", CONFIG)
-        self.assertEqual(hook.Verdict.ALLOW, result.verdict)
+            self.assertEqual(hook.Verdict.ALLOW, result.verdict)
+
+            unsafe_placements = (
+                "rg pattern -- --no-config",
+                "rg -e --no-config .",
+                "rg --glob --no-config pattern .",
+                "rg pattern --no-config .",
+            )
+            for command in unsafe_placements:
+                with self.subTest(command=command):
+                    result = hook.classify(command, CONFIG)
+                    self.assertEqual(hook.Verdict.ASK, result.verdict)
 
     def test_write_and_dynamic_suffixes_never_upgrade_safe_commands(self) -> None:
         bases = [

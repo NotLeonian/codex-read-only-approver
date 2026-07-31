@@ -32,6 +32,9 @@ dev = [
     "ruff>=0.16.0",
 ]
 
+[project.scripts]
+codex-read-only-approver = "codex_read_only_approver:main"
+
 [tool.mypy]
 python_version = "3.10"
 
@@ -43,3 +46,17 @@ quote-style = "preserve"
 
 [tool.ruff.lint]
 extend-select = ["I"]
+
+[tool.setuptools]
+py-modules = ["codex_read_only_approver"]
+
+[tool.setuptools.data-files]
+"share/codex-read-only-approver" = [
+  "README.md",
+  "README.ja.md",
+  "AGENTS.md.snippet",
+  "SECURITY.md",
+  "config.json.example",
+  "hooks.json.example",
+  "codex-read-only-approver.rules.example"
+]

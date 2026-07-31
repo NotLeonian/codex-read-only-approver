@@ -1,0 +1,6 @@
+{
+	"verify_executable_paths": true,
+	"verify_ambient_environment": true,
+	"extra_trusted_executable_roots": [],
+	"max_command_bytes": 65536
+}

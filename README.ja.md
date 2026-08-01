@@ -8,10 +8,7 @@ Bash コマンド全体が、静的に読み取り専用と判定できるよう
 主に次の運用を想定しています。
 
 ```bash
-GIT_OPTIONAL_LOCKS=0 \
-GIT_NO_LAZY_FETCH=1 \
-GIT_PAGER=cat \
-codex -s danger-full-access -a untrusted -c approvals_reviewer=user --search
+GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat codex -s danger-full-access -a untrusted -c approvals_reviewer=user --search
 ```
 
 これはサンドボックスではなく、Codex の承認ポリシーを置き換えるものでもありません。
@@ -54,8 +51,7 @@ codex -s danger-full-access -a untrusted -c approvals_reviewer=user --search
 ### スクリプトを直接配置する方法
 ```bash
 mkdir -p ~/.codex/hooks
-install -m 0755 codex_read_only_approver.py \
-  ~/.codex/hooks/codex_read_only_approver.py
+install -m 0755 codex_read_only_approver.py ~/.codex/hooks/codex_read_only_approver.py
 ```
 
 [`hooks.json.example`](hooks.json.example) の内容を `~/.codex/hooks.json` に統合します。
@@ -66,8 +62,7 @@ install -m 0755 codex_read_only_approver.py \
 
 ```bash
 mkdir -p ~/.codex/rules
-install -m 0644 codex-read-only-approver.rules.example \
-  ~/.codex/rules/codex-read-only-approver.rules
+install -m 0644 codex-read-only-approver.rules.example ~/.codex/rules/codex-read-only-approver.rules
 ```
 
 このルールは、対応しているコマンドを自動的に許可するものではありません。
@@ -79,14 +74,7 @@ hook を使わない Codex セッションでもルールは読み込まれる�
 Git が必要に応じて行う書き込みと lazy fetch を抑止し、人間を承認者に指定して Codex を起動します。
 
 ```bash
-GIT_OPTIONAL_LOCKS=0 \
-GIT_NO_LAZY_FETCH=1 \
-GIT_PAGER=cat \
-codex \
-  -s danger-full-access \
-  -a untrusted \
-  -c approvals_reviewer=user \
-  --search
+GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat codex -s danger-full-access -a untrusted -c approvals_reviewer=user --search
 ```
 
 Codex の `/hooks` を開き、hook の定義を確認して信頼します。
@@ -177,8 +165,7 @@ ASK: segment 1: sed in-place mode writes files
 分類器をテストする場合に限り、実行ファイルのパスを確認する処理を無効にできます。
 
 ```bash
-./codex_read_only_approver.py --no-path-check --check \
-  "GIT_PAGER=cat GIT_NO_LAZY_FETCH=1 GIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor= status"
+./codex_read_only_approver.py --no-path-check --check "GIT_PAGER=cat GIT_NO_LAZY_FETCH=1 GIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor= status"
 ```
 
 PATH や実行ファイルの差し替えによるリスクを明示的に許容しない限り、本番の hook の定義には `--no-path-check` を入れないでください。
@@ -208,16 +195,14 @@ hook の自動承認の範囲や承認ポリシーを変更したり、変更を
 
 ```bash
 mkdir -p "$HOME/.agents/skills/codex-read-only-approver"
-install -m 0644 SKILL.md.example \
-  "$HOME/.agents/skills/codex-read-only-approver/SKILL.md"
+install -m 0644 SKILL.md.example "$HOME/.agents/skills/codex-read-only-approver/SKILL.md"
 ```
 
 特定のリポジトリだけで利用する場合は、そのリポジトリの `.agents/skills` 配下へコピーします。
 
 ```bash
 mkdir -p "/path/to/repository/.agents/skills/codex-read-only-approver"
-install -m 0644 SKILL.md.example \
-  "/path/to/repository/.agents/skills/codex-read-only-approver/SKILL.md"
+install -m 0644 SKILL.md.example "/path/to/repository/.agents/skills/codex-read-only-approver/SKILL.md"
 ```
 
 これらはファイルシステムを変更するため、この hook による自動承認の対象にはならないことを想定しています。
@@ -234,8 +219,7 @@ python3 -m pip install .
 別のインストーラーモジュールは追加せず、パッケージに含まれる例をユーザー用の skill ディレクトリへコピーします。
 
 ```bash
-python3 -c 'from importlib.metadata import distribution; from pathlib import Path; import shutil, sys; dist = distribution("codex-read-only-approver"); source = next(dist.locate_file(item) for item in dist.files or () if item.name == "SKILL.md.example"); target = Path(sys.argv[1]).expanduser(); target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(source, target)' \
-  "$HOME/.agents/skills/codex-read-only-approver/SKILL.md"
+python3 -c 'from importlib.metadata import distribution; from pathlib import Path; import shutil, sys; dist = distribution("codex-read-only-approver"); source = next(dist.locate_file(item) for item in dist.files or () if item.name == "SKILL.md.example"); target = Path(sys.argv[1]).expanduser(); target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(source, target)' "$HOME/.agents/skills/codex-read-only-approver/SKILL.md"
 ```
 
 この導入コマンドは変更を行うため、この hook による自動承認の対象にはならないことを想定しています。

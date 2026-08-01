@@ -27,6 +27,7 @@
 # Markdown
 *.md         text diff=markdown whitespace=-blank-at-eol
 *.mdx        text diff=markdown whitespace=-blank-at-eol
+*.md.example text diff=markdown whitespace=-blank-at-eol
 *.md.snippet text diff=markdown whitespace=-blank-at-eol linguist-language=Markdown
 
 # License

@@ -1,0 +1,172 @@
+---
+name: codex-read-only-approver
+description: Prefer statically read-only shell and Git command forms that the codex-read-only-approver PermissionRequest hook can auto-approve. Use when inspecting files, searching text, or reviewing repository state with this hook active; never use it to conceal mutations, weaken policy, or avoid required human approval.
+---
+
+# Codex Read-Only Approver
+## Objective
+Reduce unnecessary approval prompts by selecting command forms that the `codex-read-only-approver` hook can classify as statically read-only.
+
+Optimize only read-only inspection commands.
+Do not alter the user's requested operation, weaken the hook, or omit required validation merely to obtain automatic approval.
+
+## Safety boundaries
+Use this skill only when the repository's `PermissionRequest` hook and exec-policy rules are installed, active, and trusted.
+
+Assume Bash/POSIX shell syntax.
+On Windows, use Codex inside WSL 2; native PowerShell commands are outside this hook's grammar.
+
+Automatic approval is not a sandbox decision.
+It is a hook decision made under the deployment assumptions documented by the repository.
+
+Never do any of the following merely to reduce prompts:
+
+- weaken `approval_policy` or change `approvals_reviewer`;
+- disable executable-path or ambient-environment verification;
+- use `--no-path-check` in a production hook definition;
+- add a user-writable directory to trusted executable roots;
+- change `PATH`, hook configuration, or exec-policy rules;
+- combine a mutation with an inspection so the mutation is less visible;
+- replace a required test with a weaker check;
+- broaden the classifier only because a command currently requires approval.
+
+When an operation writes, executes an unreviewed helper, uses unsupported shell syntax, or remains ambiguous, keep it explicit and accept human approval.
+
+## Required workflow
+1. Separate inspection and mutation into different tool calls.
+2. Inspect with literal, statically analyzable command lines.
+3. Prefer one command per tool call.
+4. Use `apply_patch` for file creation and edits.
+5. Run mutations, package installation, tests, and quality checks as separate explicit commands, even when they require approval.
+6. Inspect the resulting files and Git diff with read-only commands.
+7. If a read-only command is not auto-approved, simplify or split it before requesting approval.
+8. Do not modify policy or implementation solely to manufacture an `ALLOW` result.
+
+## Shell construction rules
+Prefer explicit paths and literal arguments.
+
+Quote search patterns and tool-level glob arguments so the shell cannot expand them into option-looking filenames.
+Use `--` before operands when the command supports it.
+Use `./` for a relative operand that could begin with `-`.
+
+Do not use the following for read-only inspection:
+
+- command substitution such as `$(...)` or backticks;
+- shell-variable or parameter expansion;
+- process substitution;
+- heredocs or here-strings;
+- shell loops, functions, grouping, or background execution;
+- unquoted `*`, `?`, bracket globs, or brace expansion;
+- output redirection to a file;
+- `tee`;
+- inline interpreters such as `python -c`, `perl -e`, `ruby -e`, `node -e`, or `sh -c`;
+- project-local scripts or wrappers merely because they appear to be read-only.
+
+Output redirection is acceptable only when deliberately discarding output to `/dev/null`.
+
+Pipelines and `&&`, `||`, or `;` chains are eligible only when every segment is independently read-only.
+Prefer separate tool calls because they are easier to audit and simplify.
+
+## Preferred file-inspection commands
+Use bounded reads where practical:
+
+```bash
+sed -n '1,200p' README.md
+head -n 80 README.md
+tail -n 80 README.md
+cat pyproject.toml
+```
+
+Put `--no-config` first when using ripgrep so ambient configuration cannot alter its behavior:
+
+```bash
+rg --no-config -n 'PermissionRequest|auto-approve' -- README.md README.ja.md
+rg --no-config --files --hidden -g '!.git' .
+rg --no-config -n 'core\.fsmonitor' -- codex_read_only_approver.py test_codex_read_only_approver.py
+```
+
+Quote glob arguments passed to tools:
+
+```bash
+rg --no-config --files -g '*.md' .
+find . -maxdepth 2 -type f -name '*.md' -print
+```
+
+Use direct metadata and comparison commands:
+
+```bash
+ls -la .
+stat README.md
+wc -l README.md README.ja.md
+sha256sum codex_read_only_approver.py
+diff -u README.old.md README.md
+```
+
+Use a pipeline only when it materially reduces output and every segment is independently read-only:
+
+```bash
+rg --no-config -n 'PermissionRequest|approval' -- README.md README.ja.md | sed -n '1,120p'
+```
+
+Do not use `sort` only to improve presentation.
+The hook deliberately sends `sort` to human approval because it may write temporary files.
+
+## Required Git command form
+Every Git command other than `git --version` must explicitly disable configured FSMonitor execution.
+
+Git inspection must also disable the Git pager and lazy fetching.
+`git status` must additionally disable optional index locks.
+
+For portability across Codex launch environments, repeat this literal prefix instead of storing it in a shell variable:
+
+```text
+GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat git -c core.fsmonitor=
+```
+
+Use these forms:
+
+```bash
+GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat git -c core.fsmonitor= status --short
+GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat git -c core.fsmonitor= ls-files
+GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat git -c core.fsmonitor= log --no-patch --oneline -n 20
+GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat git -c core.fsmonitor= show HEAD:README.md
+GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat git -c core.fsmonitor= branch --list
+GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat git -c core.fsmonitor= tag --list
+GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat git -c core.fsmonitor= config --get core.hooksPath
+GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat git -c core.fsmonitor= remote -v
+```
+
+Add both diff-helper guards to every `git diff`, ordinary commit-oriented `git show`, and patch-producing `git log`, `git stash show`, or `git reflog show`:
+
+```bash
+GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat git -c core.fsmonitor= diff --no-ext-diff --no-textconv -- README.md README.ja.md
+GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat git -c core.fsmonitor= diff --cached --no-ext-diff --no-textconv -- README.md
+GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat git -c core.fsmonitor= diff --no-ext-diff --no-textconv --check --
+GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat git -c core.fsmonitor= show --no-ext-diff --no-textconv --stat HEAD
+GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat git -c core.fsmonitor= log --no-ext-diff --no-textconv --stat -n 5
+```
+
+A direct blob read such as `git show HEAD:path` is not diff-producing and does not need the two diff-helper guards.
+
+Use explicit `--list` forms.
+Do not use the version-sensitive `git branch -l` or `git tag -l` shorthand.
+
+## Rewrite prompt-prone forms
+Apply these transformations only when they preserve the user's intent.
+
+| Prompt-prone form | Preferred action |
+|---|---|
+| `sed -i 's/old/new/' file` | Edit with `apply_patch`; inspect with stdout-only `sed`. |
+| `cat > file <<'EOF' ...` | Create or replace the file with `apply_patch`. |
+| `rg TODO . > matches.txt` | Run `rg --no-config -n 'TODO' .` and retain the result in tool output. |
+| `files=$(rg --files)` | Run `rg --no-config --files .` directly without storing shell state. |
+| `for f in *.md; do ...; done` | List quoted matches first, then inspect explicit paths in separate calls. |
+| `find . -exec cat {} \;` | Use `find ... -print`, then read selected literal paths separately. |
+| `git status` | Use the required Git environment and `-c core.fsmonitor=` form. |
+| `git diff` | Add the required Git environment plus `--no-ext-diff --no-textconv`. |
+| `git branch -l` or `git tag -l` | Use `--list`. |
+| `python3 -c '...'` for inspection | Use a dedicated read-only utility; otherwise accept human approval. |
+| `sort input` | Accept human approval when sorting is semantically required. |
+
+Do not repeatedly rephrase a command when the operation itself is outside the allowlist.
+Request approval for the explicit operation instead.

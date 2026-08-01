@@ -7,10 +7,7 @@ Anything that writes, executes an unreviewed helper, uses dynamic shell expansio
 This project is designed for the following operating model:
 
 ```bash
-GIT_OPTIONAL_LOCKS=0 \
-GIT_NO_LAZY_FETCH=1 \
-GIT_PAGER=cat \
-codex -s danger-full-access -a untrusted -c approvals_reviewer=user --search
+GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat codex -s danger-full-access -a untrusted -c approvals_reviewer=user --search
 ```
 
 It is not a sandbox and does not replace Codex approval policy.
@@ -54,8 +51,7 @@ Every automatically allowed Git example also carries the required `-c core.fsmon
 ### Direct script installation
 ```bash
 mkdir -p ~/.codex/hooks
-install -m 0755 codex_read_only_approver.py \
-  ~/.codex/hooks/codex_read_only_approver.py
+install -m 0755 codex_read_only_approver.py ~/.codex/hooks/codex_read_only_approver.py
 ```
 
 Merge the contents of [`hooks.json.example`](hooks.json.example) into `~/.codex/hooks.json`.
@@ -65,8 +61,7 @@ Install the accompanying exec-policy rules so commands on Codex's own known-safe
 
 ```bash
 mkdir -p ~/.codex/rules
-install -m 0644 codex-read-only-approver.rules.example \
-  ~/.codex/rules/codex-read-only-approver.rules
+install -m 0644 codex-read-only-approver.rules.example ~/.codex/rules/codex-read-only-approver.rules
 ```
 
 The rules do not auto-allow these commands.
@@ -77,14 +72,7 @@ Do not combine it with `-a never` or another mode that forbids approval prompts.
 Start Codex with a human reviewer and Git's known optional writes/lazy fetch disabled:
 
 ```bash
-GIT_OPTIONAL_LOCKS=0 \
-GIT_NO_LAZY_FETCH=1 \
-GIT_PAGER=cat \
-codex \
-  -s danger-full-access \
-  -a untrusted \
-  -c approvals_reviewer=user \
-  --search
+GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat codex -s danger-full-access -a untrusted -c approvals_reviewer=user --search
 ```
 
 Open `/hooks` in Codex, inspect the exact hook definition, and trust it.
@@ -172,8 +160,7 @@ ASK: segment 1: sed in-place mode writes files
 For classifier tests only, executable path verification can be disabled:
 
 ```bash
-./codex_read_only_approver.py --no-path-check --check \
-  "GIT_PAGER=cat GIT_NO_LAZY_FETCH=1 GIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor= status"
+./codex_read_only_approver.py --no-path-check --check "GIT_PAGER=cat GIT_NO_LAZY_FETCH=1 GIT_OPTIONAL_LOCKS=0 git -c core.fsmonitor= status"
 ```
 
 Do not put `--no-path-check` in the production hook definition unless you explicitly accept PATH and executable-substitution risk.
@@ -189,6 +176,55 @@ Do not put `--no-path-check` in the production hook definition unless you explic
 - avoid dynamic shell constructs in inspection commands.
 
 This improves both approval precision and auditability.
+
+## Optional Codex skill example
+[`SKILL.md.example`](SKILL.md.example) is an example Codex skill that instructs Codex to prefer command forms this hook can classify as statically read-only.
+
+The file is inactive in this repository because Codex loads a skill only from a file named `SKILL.md` inside a skill directory.
+Installing it changes command-selection guidance only.
+It does not widen the hook's automatic allowlist, change the approval policy, or make a mutating command read-only.
+
+### Direct file installation
+For user-wide use, copy the example to the user skill directory and rename it to `SKILL.md`:
+
+```bash
+mkdir -p "$HOME/.agents/skills/codex-read-only-approver"
+install -m 0644 SKILL.md.example "$HOME/.agents/skills/codex-read-only-approver/SKILL.md"
+```
+
+For use only in another repository, copy it below that repository's `.agents/skills` directory:
+
+```bash
+mkdir -p "/path/to/repository/.agents/skills/codex-read-only-approver"
+install -m 0644 SKILL.md.example "/path/to/repository/.agents/skills/codex-read-only-approver/SKILL.md"
+```
+
+These installation commands modify the filesystem and are expected to require approval.
+Codex normally detects skill changes automatically; restart Codex if the skill does not appear.
+
+### Optional package installation
+The Python package includes `SKILL.md.example` in its installed data files.
+
+```bash
+python3 -m pip install .
+```
+
+After installation, copy the packaged example to the user skill directory without adding a separate installer module:
+
+```bash
+python3 -c 'from importlib.metadata import distribution; from pathlib import Path; import shutil, sys; dist = distribution("codex-read-only-approver"); source = next(dist.locate_file(item) for item in dist.files or () if item.name == "SKILL.md.example"); target = Path(sys.argv[1]).expanduser(); target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(source, target)' "$HOME/.agents/skills/codex-read-only-approver/SKILL.md"
+```
+
+The installation command is intentionally explicit and is not expected to be auto-approved by this hook.
+
+### Usage
+Invoke the installed skill explicitly with `$codex-read-only-approver` when needed.
+
+```text
+Use $codex-read-only-approver to inspect the current repository state.
+```
+
+Codex may also select it automatically when it inspects files, searches text, or reviews repository state.
 
 ## Tests
 ```bash

@@ -195,6 +195,60 @@ PATH や実行ファイルの差し替えによるリスクを明示的に許容
 
 これにより、承認を判断する精度が高まり、監査もしやすくなります。
 
+## Codex skill の例
+[`SKILL.md.example`](SKILL.md.example) は、この hook が静的に読み取り専用と判定できる形式のコマンドを優先するよう Codex に指示する skill の例です。
+
+このリポジトリではファイル名が `SKILL.md.example` であるため、有効な skill として読み込まれません。
+Codex が skill として読み込むのは、skill 用ディレクトリ内にある `SKILL.md` です。
+この skill を導入しても、変更されるのはコマンドの選び方だけです。
+hook の自動承認の範囲や承認ポリシーを変更したり、変更を行うコマンドを読み取り専用として扱ったりするものではありません。
+
+### ファイルを直接配置する方法
+ユーザーがすべてのリポジトリで利用する場合は、例をユーザー用の skill ディレクトリへコピーし、`SKILL.md` に名前を変更します。
+
+```bash
+mkdir -p "$HOME/.agents/skills/codex-read-only-approver"
+install -m 0644 SKILL.md.example \
+  "$HOME/.agents/skills/codex-read-only-approver/SKILL.md"
+```
+
+特定のリポジトリだけで利用する場合は、そのリポジトリの `.agents/skills` 配下へコピーします。
+
+```bash
+mkdir -p "/path/to/repository/.agents/skills/codex-read-only-approver"
+install -m 0644 SKILL.md.example \
+  "/path/to/repository/.agents/skills/codex-read-only-approver/SKILL.md"
+```
+
+これらはファイルシステムを変更するため、この hook による自動承認の対象にはならないことを想定しています。
+通常、Codex は skill の変更を自動的に検出します。
+skill が表示されない場合は Codex を再起動してください。
+
+### Python パッケージとして導入する方法
+Python パッケージには、インストール済みのデータファイルとして `SKILL.md.example` が含まれます。
+
+```bash
+python3 -m pip install .
+```
+
+別のインストーラーモジュールは追加せず、パッケージに含まれる例をユーザー用の skill ディレクトリへコピーします。
+
+```bash
+python3 -c 'from importlib.metadata import distribution; from pathlib import Path; import shutil, sys; dist = distribution("codex-read-only-approver"); source = next(dist.locate_file(item) for item in dist.files or () if item.name == "SKILL.md.example"); target = Path(sys.argv[1]).expanduser(); target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(source, target)' \
+  "$HOME/.agents/skills/codex-read-only-approver/SKILL.md"
+```
+
+この導入コマンドは変更を行うため、この hook による自動承認の対象にはならないことを想定しています。
+
+### 使用方法
+必要に応じて、導入した skill を `$codex-read-only-approver` と明示して呼び出します。
+
+```text
+$codex-read-only-approver を使って、現在のリポジトリの状態を確認してください。
+```
+
+Codex がファイルを確認したり、テキストを検索したり、リポジトリの状態をレビューしたりするときは、この skill が自動的に選ばれる場合もあります。
+
 ## テスト
 ```bash
 python3 -m unittest -v

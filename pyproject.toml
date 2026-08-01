@@ -58,5 +58,6 @@ py-modules = ["codex_read_only_approver"]
   "SECURITY.md",
   "config.json.example",
   "hooks.json.example",
-  "codex-read-only-approver.rules.example"
+  "codex-read-only-approver.rules.example",
+  "SKILL.md.example",
 ]

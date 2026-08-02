@@ -48,6 +48,11 @@ Every automatically allowed Git example also carries the required `-c core.fsmon
 | `python3 -c '...'` | human approval |
 
 ## Installation
+In Bash examples, `~` represents the home directory and is left unquoted.
+
+In addition, replaceable absolute-path placeholders are enclosed in double quotes.
+Keep the double quotes after substituting the actual path.
+
 ### Direct script installation
 ```bash
 mkdir -p ~/.codex/hooks
@@ -192,11 +197,11 @@ mkdir -p ~/.agents/skills/codex-read-only-approver
 install -m 0644 SKILL.md.example ~/.agents/skills/codex-read-only-approver/SKILL.md
 ```
 
-For use only in another repository, copy it below that repository's `.agents/skills` directory:
+For use only in another repository, replace `/path/to/repository` with that repository's absolute path and copy the example below its `.agents/skills` directory:
 
 ```bash
-mkdir -p /path/to/repository/.agents/skills/codex-read-only-approver
-install -m 0644 SKILL.md.example /path/to/repository/.agents/skills/codex-read-only-approver/SKILL.md
+mkdir -p "/path/to/repository/.agents/skills/codex-read-only-approver"
+install -m 0644 SKILL.md.example "/path/to/repository/.agents/skills/codex-read-only-approver/SKILL.md"
 ```
 
 These installation commands modify the filesystem and are expected to require approval.

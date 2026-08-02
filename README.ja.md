@@ -194,15 +194,15 @@ hook の自動承認の範囲や承認ポリシーを変更したり、変更を
 ユーザーがすべてのリポジトリで利用する場合は、例をユーザー用の skill ディレクトリへコピーし、`SKILL.md` に名前を変更します。
 
 ```bash
-mkdir -p "$HOME/.agents/skills/codex-read-only-approver"
-install -m 0644 SKILL.md.example "$HOME/.agents/skills/codex-read-only-approver/SKILL.md"
+mkdir -p ~/.agents/skills/codex-read-only-approver
+install -m 0644 SKILL.md.example ~/.agents/skills/codex-read-only-approver/SKILL.md
 ```
 
 特定のリポジトリだけで利用する場合は、そのリポジトリの `.agents/skills` 配下へコピーします。
 
 ```bash
-mkdir -p "/path/to/repository/.agents/skills/codex-read-only-approver"
-install -m 0644 SKILL.md.example "/path/to/repository/.agents/skills/codex-read-only-approver/SKILL.md"
+mkdir -p /path/to/repository/.agents/skills/codex-read-only-approver
+install -m 0644 SKILL.md.example /path/to/repository/.agents/skills/codex-read-only-approver/SKILL.md
 ```
 
 これらはファイルシステムを変更するため、この hook による自動承認の対象にはならないことを想定しています。
@@ -219,7 +219,7 @@ python3 -m pip install .
 別のインストーラーモジュールは追加せず、パッケージに含まれる例をユーザー用の skill ディレクトリへコピーします。
 
 ```bash
-python3 -c 'from importlib.metadata import distribution; from pathlib import Path; import shutil, sys; dist = distribution("codex-read-only-approver"); source = next(dist.locate_file(item) for item in dist.files or () if item.name == "SKILL.md.example"); target = Path(sys.argv[1]).expanduser(); target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(source, target)' "$HOME/.agents/skills/codex-read-only-approver/SKILL.md"
+python3 -c 'from importlib.metadata import distribution; from pathlib import Path; import shutil, sys; dist = distribution("codex-read-only-approver"); source = next(dist.locate_file(item) for item in dist.files or () if item.name == "SKILL.md.example"); target = Path(sys.argv[1]).expanduser(); target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(source, target)' ~/.agents/skills/codex-read-only-approver/SKILL.md
 ```
 
 この導入コマンドは変更を行うため、この hook による自動承認の対象にはならないことを想定しています。

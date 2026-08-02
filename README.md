@@ -48,6 +48,11 @@ Every automatically allowed Git example also carries the required `-c core.fsmon
 | `python3 -c '...'` | human approval |
 
 ## Installation
+In Bash examples, `~` represents the home directory and is left unquoted.
+
+In addition, replaceable absolute-path placeholders are enclosed in double quotes.
+Keep the double quotes after substituting the actual path.
+
 ### Direct script installation
 ```bash
 mkdir -p ~/.codex/hooks
@@ -188,11 +193,11 @@ It does not widen the hook's automatic allowlist, change the approval policy, or
 For user-wide use, copy the example to the user skill directory and rename it to `SKILL.md`:
 
 ```bash
-mkdir -p "$HOME/.agents/skills/codex-read-only-approver"
-install -m 0644 SKILL.md.example "$HOME/.agents/skills/codex-read-only-approver/SKILL.md"
+mkdir -p ~/.agents/skills/codex-read-only-approver
+install -m 0644 SKILL.md.example ~/.agents/skills/codex-read-only-approver/SKILL.md
 ```
 
-For use only in another repository, copy it below that repository's `.agents/skills` directory:
+For use only in another repository, replace `/path/to/repository` with that repository's absolute path and copy the example below its `.agents/skills` directory:
 
 ```bash
 mkdir -p "/path/to/repository/.agents/skills/codex-read-only-approver"
@@ -212,7 +217,7 @@ python3 -m pip install .
 After installation, copy the packaged example to the user skill directory without adding a separate installer module:
 
 ```bash
-python3 -c 'from importlib.metadata import distribution; from pathlib import Path; import shutil, sys; dist = distribution("codex-read-only-approver"); source = next(dist.locate_file(item) for item in dist.files or () if item.name == "SKILL.md.example"); target = Path(sys.argv[1]).expanduser(); target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(source, target)' "$HOME/.agents/skills/codex-read-only-approver/SKILL.md"
+python3 -c 'from importlib.metadata import distribution; from pathlib import Path; import shutil, sys; dist = distribution("codex-read-only-approver"); source = next(dist.locate_file(item) for item in dist.files or () if item.name == "SKILL.md.example"); target = Path(sys.argv[1]).expanduser(); target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(source, target)' ~/.agents/skills/codex-read-only-approver/SKILL.md
 ```
 
 The installation command is intentionally explicit and is not expected to be auto-approved by this hook.

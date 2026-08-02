@@ -48,6 +48,11 @@ GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat codex -s danger-full-acce
 | `python3 -c '...'` | 人間による承認 |
 
 ## 導入
+Bash の例では、ホームディレクトリを表す `~` を引用符で囲んでいません。
+
+また、実際の絶対パスに置き換えるプレースホルダーは、二重引用符で囲んでいます。
+置き換えた後も二重引用符を残してください。
+
 ### スクリプトを直接配置する方法
 ```bash
 mkdir -p ~/.codex/hooks
@@ -194,11 +199,11 @@ hook の自動承認の範囲や承認ポリシーを変更したり、変更を
 ユーザーがすべてのリポジトリで利用する場合は、例をユーザー用の skill ディレクトリへコピーし、`SKILL.md` に名前を変更します。
 
 ```bash
-mkdir -p "$HOME/.agents/skills/codex-read-only-approver"
-install -m 0644 SKILL.md.example "$HOME/.agents/skills/codex-read-only-approver/SKILL.md"
+mkdir -p ~/.agents/skills/codex-read-only-approver
+install -m 0644 SKILL.md.example ~/.agents/skills/codex-read-only-approver/SKILL.md
 ```
 
-特定のリポジトリだけで利用する場合は、そのリポジトリの `.agents/skills` 配下へコピーします。
+特定のリポジトリだけで利用する場合は、`/path/to/repository` をそのリポジトリの絶対パスに置き換え、`.agents/skills` 配下へコピーします。
 
 ```bash
 mkdir -p "/path/to/repository/.agents/skills/codex-read-only-approver"
@@ -219,7 +224,7 @@ python3 -m pip install .
 別のインストーラーモジュールは追加せず、パッケージに含まれる例をユーザー用の skill ディレクトリへコピーします。
 
 ```bash
-python3 -c 'from importlib.metadata import distribution; from pathlib import Path; import shutil, sys; dist = distribution("codex-read-only-approver"); source = next(dist.locate_file(item) for item in dist.files or () if item.name == "SKILL.md.example"); target = Path(sys.argv[1]).expanduser(); target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(source, target)' "$HOME/.agents/skills/codex-read-only-approver/SKILL.md"
+python3 -c 'from importlib.metadata import distribution; from pathlib import Path; import shutil, sys; dist = distribution("codex-read-only-approver"); source = next(dist.locate_file(item) for item in dist.files or () if item.name == "SKILL.md.example"); target = Path(sys.argv[1]).expanduser(); target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(source, target)' ~/.agents/skills/codex-read-only-approver/SKILL.md
 ```
 
 この導入コマンドは変更を行うため、この hook による自動承認の対象にはならないことを想定しています。

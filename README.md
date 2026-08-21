@@ -6,8 +6,10 @@ It auto-approves a Bash command only when the entire command string fits a delib
 Anything that writes, executes an unreviewed helper, uses dynamic shell expansion, is malformed, or is unknown produces no hook decision.
 The hook does not itself force a prompt; the active Codex policy decides what happens to an unresolved request.
 
-This project is designed for Codex 0.149.0 and later with `approval_policy = "on-request"`, a human reviewer, and a permission profile that keeps task files non-writable until the client presents native file-change approval.
-The companion skill runs read-only inspections immediately and fails closed before a mutation if the native approval UI is unavailable.
+This project is designed for Codex 0.149.0 and later with `approval_policy = "on-request"`, a human reviewer, and a client and permission boundary that can present the applicable native approval before a task file is written.
+Direct edits use native file-change approval over the complete proposed change; intentionally write-producing commands use one-time native command approval over the exact command.
+On hosts where the platform sandbox initializes successfully, the recommended strict permission profile provides a hard filesystem boundary.
+The companion skill applies independently of that profile: it runs read-only inspections immediately and fails closed before a mutation if the applicable native approval UI is unavailable.
 
 The hook is not a sandbox and does not replace Codex approval policy.
 Read [SECURITY.md](SECURITY.md) before relying on it.
@@ -86,16 +88,23 @@ The current App Server first sends a `fileChange` item containing the proposed c
 The client can display those changes while it waits for an accept or decline decision, after which the server resumes or declines the same work.
 See the official [App Server approval flow](https://learn.chatgpt.com/docs/app-server#approvals).
 
-Use an interactive TUI, app, or IDE client that supports native file-change requests.
+Use an interactive TUI, app, or IDE client that supports native file-change and command-execution requests.
 Choose one-time approval rather than `acceptForSession` when every change must be reviewed.
-A diff pasted into chat, `request_permissions`, and command-execution approval are not substitutes for the native file-change UI.
+For a direct file edit, a diff pasted into chat, `request_permissions`, and command-execution approval are not substitutes for the native file-change UI.
+
+A command whose intended operation produces changes may instead use one-time native command-execution approval for the exact command.
+This includes formatters in write mode, generators, package managers, migrations, and mutating container commands.
+Do not require an additional file-change approval for changes produced by that approved command.
+Keep the command in a separate tool call without a persistent approval rule, continue the same task after approval, and inspect the complete resulting diff.
+Do not wrap a directly representable edit in a shell command merely to avoid the file-change UI.
 
 Permission profiles replace the legacy `sandbox_mode` settings and can keep the workspace non-writable without setting `sandbox_mode = "read-only"`.
-They are beta and still use the platform sandbox, including Seatbelt on macOS.
+They are beta and still use the platform sandbox, including Seatbelt on macOS and the Linux sandbox inside Linux containers or virtual machines.
+The skill does not require or change a profile, but a working read-only profile supplies the technical boundary that forces task-file changes through native approval.
 Remove `sandbox_mode` and `sandbox_workspace_write` from every loaded config layer, and do not pass `--sandbox`, because legacy settings take precedence over `default_permissions`.
 See the official [permission profile documentation](https://learn.chatgpt.com/docs/permissions).
 
-This strict example allows common runtime reads and reads within the active workspace, but no writes:
+On a host where the platform sandbox works, this strict example allows common runtime reads and reads within the active workspace, but no writes:
 
 ```toml
 approval_policy = "on-request"
@@ -119,21 +128,67 @@ GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat codex -a on-request --sea
 ```
 
 Do not add `-s`; it selects the legacy sandbox system.
-If a client cannot present native file-change approval, the skill must stop before writing rather than use a conversational diff or a shell command as a workaround.
+If a client cannot present the applicable native approval, the skill must stop before writing rather than use a conversational prompt or broad permission as a workaround.
+If Codex runs inside an affected OrbStack guest, the strict workflow is unavailable; use the degraded configuration below only for inspection-only work.
 
 Some toolchains need to write caches or temporary files.
 To allow those writes without making the workspace writable, add `":tmpdir" = "write"` and `":slash_tmp" = "write"` to `[permissions.review-project-writes.filesystem]`.
 Those are real unapproved writes, so omit them when the requirement literally covers every filesystem write.
 
 Read-only validation should not prompt merely because it uses a project environment.
-Run tests, type checkers, linters, and formatter checks automatically when the active profile blocks task-file writes and external state, and prefer check-only, no-bytecode, no-cache, or no-incremental options.
+Run tests, type checkers, linters, and formatter checks automatically when their command forms are constrained not to mutate task files or external state, regardless of whether a read-only profile is active.
+Prefer check-only, no-bytecode, no-cache, or no-incremental options.
 If a check fails only because it tried to create disposable cache data, disable that cache or redirect it to an already allowed temporary directory instead of escalating the whole command.
 A test that genuinely needs temporary files can use the optional temp grants above; this is a deliberate compatibility exception, not approval of every filesystem write.
 
 For Python tools, useful no-write forms include `python -B`, Ruff `--no-cache`, and Mypy `--cache-dir=/dev/null` on Unix or `--cache-dir=nul` on Windows.
 Mypy still writes cache data with `--no-incremental`, so that flag alone is insufficient.
 
-### OrbStack and Docker sockets
+### Running Codex inside OrbStack
+
+Restrictive permission profiles and legacy sandbox modes start another Linux sandbox inside the OrbStack guest.
+In the affected OrbStack Ubuntu 22.04 x86_64 guest, Codex 0.149.0 reports `SeccompInstall(EINVAL)` while applying that inner sandbox.
+The failure can occur before the agent follows this skill or while an ordinary command or patch is being checked.
+
+The local end-to-end probes produced these results:
+
+| Tested condition                                           | Observed result                                                                                                           |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `review-project-writes`                                    | A fresh session fails while loading AGENTS instructions, before the agent starts.                                         |
+| The same filesystem rules with command network enabled     | Direct `codex sandbox ... sed` succeeds, but a fresh session still fails at AGENTS loading.                               |
+| Legacy `sandbox_mode = "danger-full-access"`               | The interactive TUI starts, reads the skill file, and runs `sed` with no inner sandbox error.                             |
+| The same legacy mode with a mutating `touch` command probe | The command runs without a separate approval prompt inside the TUI after the agent attempts to request one-time approval. |
+
+Enabling command network access is not a usable workaround.
+Codex 0.149.0 routes restricted filesystem reads for AGENTS discovery through an internal [filesystem sandbox](https://github.com/openai/codex/blob/rust-v0.149.0/codex-rs/core/src/agents_md.rs#L52-L113).
+That helper rebuilds the profile with network access hard-coded to [`Restricted`](https://github.com/openai/codex/blob/rust-v0.149.0/codex-rs/exec-server/src/fs_sandbox.rs#L67-L152), regardless of the session profile.
+Existing-file patch verification uses the same helper [before approval](https://github.com/openai/codex/blob/rust-v0.149.0/codex-rs/core/src/tools/handlers/apply_patch.rs#L363-L393).
+The helper therefore tries to install the failing seccomp filter even when `codex doctor` reports that the session profile has network enabled.
+
+`:read-only` changes the filesystem policy but does not remove the inner sandbox from ordinary command and patch paths.
+Conversely, `:danger-full-access` or legacy `sandbox_mode = "danger-full-access"` removes the boundary that would force a file-change request.
+Codex 0.149.0 then [auto-approves patches](https://github.com/openai/codex/blob/rust-v0.149.0/codex-rs/core/src/safety.rs#L35-L60), and the local command probe also ran without a separate approval prompt inside the TUI.
+`approval_policy = "on-request"` alone does not restore either prompt in this tested configuration.
+`--dangerously-bypass-approvals-and-sandbox` also disables approvals and is never a substitute.
+
+Consequently, the affected OrbStack environment and Codex 0.149.0 cannot use configuration or this skill alone to guarantee all three properties: successful startup, automatic read-only commands, and the applicable native approval for every mutation.
+For the strict workflow, run Codex on the macOS host or another runtime where the restrictive profile works, and access OrbStack only through separately approved commands.
+Do not assume that a later release fixes the incompatibility; repeat an end-to-end test only after identifying an upstream fix.
+
+If you intentionally accept an inspection-only degraded mode inside the affected guest, remove permission-profile settings and use the tested startup configuration:
+
+```toml
+# Inspection only: this does not guarantee approval for file changes.
+approval_policy = "on-request"
+approvals_reviewer = "user"
+sandbox_mode = "danger-full-access"
+```
+
+Under that configuration, this skill may continue statically read-only inspections, but it must treat every task-file and external-state mutation as unavailable, including write-mode formatters and other mutating commands.
+The source confirms patch auto-approval, and the tested TUI did not show command approval, so do not probe for approval by attempting a mutation during a task.
+Do not use this degraded mode for a task that requires file changes.
+
+### Accessing OrbStack and Docker sockets
 
 The strict profile intentionally does not allow a Docker socket.
 OpenAI documents Unix socket proxying for Docker as a [local escape hatch](https://learn.chatgpt.com/docs/permissions#unix-sockets), and OrbStack supports [two-way bind mounts between containers and macOS](https://docs.orbstack.dev/docker/file-sharing).
@@ -144,7 +199,7 @@ For the strict workflow, keep the socket blocked and request native command appr
 Current permission profiles do not distinguish read-only Docker API calls from mutating calls.
 Automatically allowing Docker reads while approving only mutations requires an independently audited, API-aware read-only proxy or equivalent boundary; the skill and permission profile alone cannot provide that distinction.
 
-If OrbStack compatibility is more important than approving every possible mutation, this optional exception enables the exact active socket:
+On a host where the platform sandbox and managed network proxy work, this optional exception enables the exact active socket when OrbStack access is more important than approving every possible mutation:
 
 ```toml
 [features]
@@ -160,10 +215,6 @@ enabled = true
 Find the active endpoint with `docker context inspect`; do not assume `/var/run/docker.sock`, because OrbStack may expose a different context socket or symlink.
 Allow only the exact absolute socket path.
 This exception is not compatible with a guarantee that every mutation receives native approval.
-
-If Codex itself runs inside an OrbStack machine or container, permission profiles still use an inner sandbox.
-Using an outer container as the isolation boundary and granting inner full access can avoid nested-sandbox problems, but then file changes do not naturally trigger native diff approval.
-Current native controls therefore cannot guarantee both unrestricted inner execution and approval of every file change.
 
 Open `/hooks` in Codex, inspect the exact hook definition, and trust it.
 Re-review it after changing the hook command or files when Codex reports that review is required.
@@ -268,10 +319,11 @@ Do not put `--no-path-check` in the production hook definition unless you explic
 - quote patterns rather than rely on shell glob expansion;
 - use `git -c core.fsmonitor= ...`, `GIT_OPTIONAL_LOCKS=0`, and `GIT_NO_LAZY_FETCH=1` for read-only Git inspection;
 - force the Git pager to `cat` and add `--no-ext-diff --no-textconv` to diff-producing commands;
-- use the patch/file-change tool and require native approval over the complete proposed change;
+- use the patch/file-change tool and require native approval over the complete proposed change for direct edits;
+- use one-time native command approval, without an additional file-change approval, for formatters and other commands whose intended operation produces changes;
 - continue the same task after one-time approval rather than ending merely to show the approval UI;
-- stop before writing if native file-change approval is unavailable;
-- run no-write tests, type checks, lint checks, and formatter checks automatically under the active permission boundary;
+- stop before writing if the applicable native approval is unavailable;
+- run no-write tests, type checks, lint checks, and formatter checks automatically when their command forms are constrained not to mutate task files or external state;
 - disable or redirect disposable caches instead of escalating a read-only validator merely to let it cache;
 - avoid dynamic shell constructs in inspection commands.
 
@@ -284,7 +336,8 @@ This improves both approval precision and auditability.
 The file is inactive in this repository because Codex loads a skill only from a file named `SKILL.md` inside a skill directory.
 Installing it changes command-selection guidance only.
 It does not widen the hook's automatic allowlist, change the approval policy, or make a mutating command read-only.
-It directs Codex to use native file-change approval and to fail closed when the current client cannot provide it, but a skill cannot technically force the client to display that UI.
+It directs Codex to use file-change approval for direct edits, command approval for write-producing commands, and to fail closed when the current client cannot provide the applicable UI.
+A skill cannot technically force the client to display either UI.
 
 ### Direct file installation
 
@@ -302,7 +355,7 @@ mkdir -p "/path/to/repository/.agents/skills/codex-read-only-approver"
 install -m 0644 SKILL.md.example "/path/to/repository/.agents/skills/codex-read-only-approver/SKILL.md"
 ```
 
-These installation commands modify the filesystem and are expected to require approval.
+These installation commands modify the filesystem and should use one-time native command approval; their results do not also require file-change approval.
 Codex normally detects skill changes automatically; restart Codex if the skill does not appear.
 
 ### Optional package installation
@@ -319,7 +372,7 @@ After installation, copy the packaged example to the user skill directory withou
 python3 -c 'from importlib.metadata import distribution; from pathlib import Path; import shutil, sys; dist = distribution("codex-read-only-approver"); source = next(dist.locate_file(item) for item in dist.files or () if item.name == "SKILL.md.example"); target = Path(sys.argv[1]).expanduser(); target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(source, target)' ~/.agents/skills/codex-read-only-approver/SKILL.md
 ```
 
-The installation command is intentionally explicit and is not expected to be auto-approved by this hook.
+The installation command is intentionally explicit and should use one-time native command approval rather than automatic hook approval.
 
 ### Usage
 
@@ -348,9 +401,11 @@ For the intended behavior, all of the following must remain true:
 
 - Codex uses `approval_policy=on-request`;
 - approvals are routed to `user`, not `auto_review`;
-- the active client supports native file-change approval;
-- task files are not writable in the active permission profile before approval;
-- each file change uses one-time approval rather than `acceptForSession` or a remembered decision;
+- the active client supports native file-change approval and native command-execution approval;
+- the active permission boundary initializes successfully and keeps task files non-writable before approval;
+- commands have neither direct unrestricted network access nor a daemon socket when every external-state mutation must be forced through approval;
+- direct edits use file-change approval over the complete proposed change, while intentionally write-producing commands use approval over the exact command;
+- every approval is one-time rather than `acceptForSession` or a remembered decision;
 - the included `codex-read-only-approver.rules` file is active and routes supported commands through `PermissionRequest`;
 - mutating commands are not pre-allowed by another exec-policy rule;
 - no other matching `PermissionRequest` hook returns `allow` for those commands;
@@ -360,8 +415,8 @@ For the intended behavior, all of the following must remain true:
 
 Codex only invokes the Bash `PermissionRequest` hook for command execution that reaches that approval point.
 The included rules create that decision point for known-safe command families.
-A separate allow rule, remembered approval, another hook, a writable permission profile, an allowed daemon socket, or a future execution path can still bypass this hook if it runs an operation without requesting approval.
-The native file-change path is separate and must be enforced by the client and active permissions.
+A separate allow rule, remembered approval, another hook, a writable permission profile, unrestricted command network access, an allowed daemon socket, or a future execution path can still bypass this hook if it runs an operation without requesting approval.
+The native file-change path is separate from command execution; the client and active permission boundary must enforce both approval paths where they apply.
 
 ## License
 

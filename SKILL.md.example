@@ -2,7 +2,7 @@
 name: codex-read-only-approver
 description: Run statically read-only inspection and validation commands automatically, and require native Codex approval for every task-file or external-state mutation. Use when inspecting files, checking code, reviewing repository state, or changing files with the codex-read-only-approver hook; never substitute a conversational diff or broad permission for one-time native approval.
 metadata:
-  version: "0.2.0"
+  version: "0.2.1"
 ---
 
 # Codex Read-Only Approver
@@ -10,7 +10,7 @@ metadata:
 ## Objective
 
 Run read-only inspections without conversational confirmation by selecting command forms that the `codex-read-only-approver` hook can classify as statically read-only.
-Require a native Codex approval request before every mutation to task files or external state.
+Require a native Codex approval request before every mutation to task files or external state: file-change approval for direct edits and command approval for intentionally write-producing commands.
 
 Optimize only read-only inspection commands.
 Do not alter the user's requested operation, weaken the hook, or omit required validation merely to obtain automatic approval.
@@ -27,9 +27,16 @@ Automatic approval is not a sandbox decision.
 It is a hook decision made under the deployment assumptions documented by the repository.
 The hook and its exec-policy rules apply only to command execution; they cannot create a native file-change approval request.
 
-Do not require the legacy `sandbox_mode = "read-only"` setting.
-Respect the active permission profile, but never treat that profile, an existing write grant, or a remembered decision as approval for a new mutation.
-If the current client, tool, or permission profile cannot present native approval for the proposed mutation, fail closed before writing.
+Do not require, add, or switch `sandbox_mode` or `default_permissions` merely to use this skill.
+The workflow in this skill is a behavioral requirement independent of those settings.
+Respect the active permission boundary, but never treat a profile, an existing write grant, or a remembered decision as approval for a new mutation.
+
+Read-only permission profiles still invoke the platform sandbox and may fail to initialize in a restricted Linux or nested-container environment, including affected OrbStack guests.
+Do not replace them with `:danger-full-access` and claim the same guarantee: without a boundary that forces file-change approval, a patch may proceed without asking.
+In an affected OrbStack guest with Codex 0.149.0, a full-access environment does not reliably emit either approval path; continue statically read-only inspections but treat every task-file and external-state mutation as unavailable.
+In any other full-access environment, allow a mutation only if the exact tool path has already passed an independent end-to-end test that proves the applicable one-time native approval appears before writing.
+Do not probe for that approval by attempting an otherwise unnecessary mutation during the user's task.
+If the current client, tool, or permission boundary cannot present native approval for the proposed mutation, fail closed before writing.
 
 An allowed Docker or OrbStack Unix socket is not read-only merely because the local process cannot write files directly.
 The daemon can change external state and can write to host paths through writable bind mounts.
@@ -45,7 +52,7 @@ Never do any of the following merely to reduce prompts:
 - change `PATH`, hook configuration, or exec-policy rules;
 - combine a mutation with an inspection so the mutation is less visible;
 - paste a diff into chat or ask a conversational Yes/No question as a substitute for native approval;
-- substitute `request_permissions` or a command-execution prompt for native file-change approval;
+- substitute `request_permissions` or a command-execution prompt for native file-change approval on a directly representable edit;
 - use a shell write when the same file change can be represented by the patch/file-change tool;
 - replace a required test with a weaker check;
 - broaden the classifier only because a command currently requires approval.
@@ -54,7 +61,7 @@ When an operation can write task files or external state, uses unsupported shell
 
 ## Native approval for changes
 
-For every creation, edit, move, or deletion of a task file, invoke the actual patch/file-change tool so the host presents its native file-change approval UI with the complete proposed change.
+For every directly represented creation, edit, move, or deletion of a task file, invoke the actual patch/file-change tool so the host presents its native file-change approval UI with the complete proposed change.
 The approval must be a one-operation accept or decline decision over that displayed change.
 
 Requesting approval is an intermediate event in the current task.
@@ -62,15 +69,18 @@ Do not announce it as a separate task, end the response merely to trigger it, or
 Invoke the write tool in the current turn; after approval, resume the same task and continue through inspection, validation, and final reporting.
 
 If the user declines, do not retry, split, disguise, or bypass the rejected mutation.
-If the host cannot emit native file-change approval, or the selected tool would write without it, stop before the mutation and explain that the active client and permission profile must support native file-change approval.
+If the host cannot emit native file-change approval, or the selected direct-edit tool would write without it, stop before the mutation and explain that the active client and permission boundary must support native file-change approval.
 
-Use the native command-approval path for shell commands that can mutate task files or external state, including package managers, generators, formatters in write mode, migrations, and mutating container commands.
-Keep each such command separate and do not request a persistent prefix rule.
-Command approval is not a substitute for file-change approval when the proposed file diff can be represented directly.
+Use the native command-approval path when a shell command's intended operation mutates task files or external state, including package managers, generators, formatters in write mode, migrations, and mutating container commands.
+For changes produced by that exact approved command, command approval may stand in place of file-change approval; do not request both.
+Keep each such command separate, show the exact command in the approval UI, require a one-time accept or decline decision, and do not request a persistent prefix rule.
+After approval, continue the same task and inspect the complete resulting diff.
+Do not convert a directly representable edit into a shell write merely to avoid file-change approval.
 
 ## Read-only validation
 
-Run tests, type checkers, linters, and formatter checks without approval when the active permission profile prevents writes to task files and external state.
+Run tests, type checkers, linters, and formatter checks without approval when they are constrained not to mutate task files or external state.
+Do not condition these checks on a read-only `sandbox_mode` or permission profile.
 Do not request command approval merely because the validator is interpreted, project-local, or may normally use a cache.
 
 Prefer an established check command and constrain incidental writes before running it:
@@ -92,10 +102,10 @@ If the command genuinely requires a task-file or external-state mutation, separa
 1. Separate inspection and mutation into different tool calls.
 2. Inspect with literal, statically analyzable command lines.
 3. Prefer one command per tool call.
-4. Use the patch/file-change tool for file creation and edits, and require its native approval over the complete proposed change.
+4. Use the patch/file-change tool for directly represented file creation and edits, and require its native approval over the complete proposed change.
 5. After one-time approval, stay in the same task and complete the mutation.
 6. Run no-write tests and quality checks automatically under the active permission boundary.
-7. Run shell mutations and package installation as separate explicit commands with native command approval.
+7. Run write-producing commands and package installation as separate explicit commands with one-time native command approval; do not require additional file-change approval for their results.
 8. Inspect the resulting files and Git diff with read-only commands.
 9. If a read-only command is not auto-approved, simplify or split it before requesting approval.
 10. Do not modify policy or implementation solely to manufacture an `ALLOW` result.

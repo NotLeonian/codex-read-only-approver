@@ -43,12 +43,16 @@ Examples include:
 - Codex may not call `PermissionRequest` for operations already allowed by its own policy or another rule;
 - another matching hook may return `allow` independently;
 - a write-capable permission profile may let a file-change tool write without native approval;
+- a full-access fallback used to avoid a nested sandbox may allow local changes without native approval;
 - an allowed Docker or other daemon socket may change external state or host files outside the local filesystem boundary;
 - future command versions may add new side-effecting options not yet recognized by this classifier.
 
-For a hard no-write guarantee before approval, use a permission profile or other mandatory access-control boundary that technically denies writes to task files.
-The companion skill must stop before mutation when the current client cannot present native file-change approval.
-Neither the hook nor the skill can technically force that UI while the active environment already permits the write.
+For a hard no-write guarantee before approval, use a permission profile or other mandatory access-control boundary that initializes successfully and technically denies writes to task files.
+Direct edits require native file-change approval over the complete proposed change.
+An intentionally write-producing command, such as a formatter in write mode, may instead use one-time native command approval for the exact command; it does not also require file-change approval for its results.
+Do not wrap a directly representable edit in a shell command merely to select the command-approval path.
+The companion skill must stop before mutation when the current client cannot present the applicable native approval.
+Neither the hook nor the skill can technically force either UI while the active environment already permits the write.
 
 ## Deployment requirements
 
@@ -60,7 +64,7 @@ approvals_reviewer = user
 ```
 
 Codex 0.149.0 no longer accepts `untrusted`.
-Use a permission profile that keeps the active workspace non-writable, and use an interactive client that implements native file-change approval.
+On a supported host, use a permission profile that keeps the active workspace non-writable, and use an interactive client that implements native file-change and command-execution approval.
 Permission profiles replace, rather than compose with, `sandbox_mode` and `sandbox_workspace_write`; remove the legacy settings from every loaded configuration layer.
 See the official [permission profile documentation](https://learn.chatgpt.com/docs/permissions) and [App Server approval flow](https://learn.chatgpt.com/docs/app-server#approvals).
 
@@ -81,7 +85,18 @@ Allowing an OrbStack or Docker Unix socket is a broader exception: the daemon ca
 OpenAI documents Unix socket proxying as a local escape hatch, and OrbStack documents two-way bind mounts with macOS.
 Do not allow that socket in a workflow that must approve every possible mutation.
 
-Tests, type checkers, linters, and formatter checks can run without approval when the active boundary prevents task-file and external-state mutations.
+In the tested OrbStack Ubuntu 22.04 x86_64 guest, a restrictive profile makes Codex 0.149.0 fail with `SeccompInstall(EINVAL)` while its inner Linux sandbox is applied.
+Enabling network in the session profile does not fix fresh-session startup because the internal filesystem helper rebuilds its profile with restricted network access.
+The same helper participates in existing-file patch verification before approval.
+
+`:danger-full-access` and legacy `sandbox_mode = "danger-full-access"` avoid that inner sandbox, but they remove the filesystem boundary and can allow file changes without native approval.
+In the local interactive probe, Codex 0.149.0 also ran a mutating `touch` command without showing a separate approval prompt inside the TUI after the agent attempted to request one-time command approval.
+They are an inspection-only degraded mode, not an equivalent fallback for this project's strict workflow.
+For the strict guarantee, run Codex on the macOS host or another runtime where the restrictive profile initializes, and retest only after identifying an upstream fix.
+See [README.md](README.md#running-codex-inside-orbstack) for the measured results and source paths.
+
+Tests, type checkers, linters, and formatter checks can run without approval when their command forms are constrained not to mutate task files or external state.
+This rule does not depend on a read-only profile being active.
 Use check-only modes and disable bytecode, caches, and incremental state where possible.
 Do not grant a validator broader permissions solely so it can create disposable cache data; either disable the cache or place it in an explicitly allowed temporary directory.
 

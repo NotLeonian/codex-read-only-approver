@@ -1,5 +1,5 @@
 {
-	"description": "Auto-approve statically read-only Bash approval requests; defer everything else to the human reviewer.",
+	"description": "Auto-approve statically read-only Bash approval requests; leave every other request unresolved for the active Codex policy.",
 	"hooks": {
 		"PermissionRequest": [
 			{

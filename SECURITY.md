@@ -1,9 +1,13 @@
 # Security model
+
 ## Purpose
+
 `codex-read-only-approver` reduces approval fatigue by automatically approving a narrow set of commands whose **visible shell syntax and documented options** are classified as read-only.
-It fails closed: an unknown, malformed, dynamic, write-capable, or helper-executing command emits no decision and remains subject to normal human approval.
+It fails closed relative to auto-approval: an unknown, malformed, dynamic, write-capable, or helper-executing command emits no decision.
+The hook does not itself force Codex to request human approval; the active policy and client decide how an unresolved request proceeds.
 
 ## What the hook enforces
+
 For commands that reach Codex `PermissionRequest`, the hook attempts to ensure that an automatic allow contains none of the following explicit mechanisms:
 
 - file output redirection, except discarding output to `/dev/null`;
@@ -20,6 +24,7 @@ For commands that reach Codex `PermissionRequest`, the hook attempts to ensure t
 Pipelines and command chains are approved only when every parsed segment is approved.
 
 ## What the hook cannot guarantee
+
 This is not a syscall-level read-only boundary.
 A command string classifier cannot prove that an arbitrary executable performs no writes internally.
 
@@ -37,24 +42,54 @@ Examples include:
 - reading secrets is still a read and may expose them in command output;
 - Codex may not call `PermissionRequest` for operations already allowed by its own policy or another rule;
 - another matching hook may return `allow` independently;
+- a write-capable permission profile may let a file-change tool write without native approval;
+- an allowed Docker or other daemon socket may change external state or host files outside the local filesystem boundary;
 - future command versions may add new side-effecting options not yet recognized by this classifier.
 
-For a hard no-write guarantee, use an operating-system sandbox or mandatory access-control boundary that technically denies writes.
-This hook is intended for environments where the user has deliberately selected `danger-full-access` for compatibility and accepts a conservative command-policy layer rather than a kernel-enforced boundary.
+For a hard no-write guarantee before approval, use a permission profile or other mandatory access-control boundary that technically denies writes to task files.
+The companion skill must stop before mutation when the current client cannot present native file-change approval.
+Neither the hook nor the skill can technically force that UI while the active environment already permits the write.
 
 ## Deployment requirements
+
 Use all of the following:
 
 ```text
-approval_policy = untrusted
+approval_policy = on-request
 approvals_reviewer = user
 ```
+
+Codex 0.149.0 no longer accepts `untrusted`.
+Use a permission profile that keeps the active workspace non-writable, and use an interactive client that implements native file-change approval.
+Permission profiles replace, rather than compose with, `sandbox_mode` and `sandbox_workspace_write`; remove the legacy settings from every loaded configuration layer.
+See the official [permission profile documentation](https://learn.chatgpt.com/docs/permissions) and [App Server approval flow](https://learn.chatgpt.com/docs/app-server#approvals).
+
+A strict least-privilege starting point is:
+
+```toml
+default_permissions = "review-project-writes"
+
+[permissions.review-project-writes.filesystem]
+":minimal" = "read"
+
+[permissions.review-project-writes.filesystem.":workspace_roots"]
+"." = "read"
+```
+
+Granting write access to `:tmpdir` or `:slash_tmp` can improve tool compatibility, but those writes occur without approval.
+Allowing an OrbStack or Docker Unix socket is a broader exception: the daemon can change external state and, with a writable bind mount, host files.
+OpenAI documents Unix socket proxying as a local escape hatch, and OrbStack documents two-way bind mounts with macOS.
+Do not allow that socket in a workflow that must approve every possible mutation.
+
+Tests, type checkers, linters, and formatter checks can run without approval when the active boundary prevents task-file and external-state mutations.
+Use check-only modes and disable bytecode, caches, and incremental state where possible.
+Do not grant a validator broader permissions solely so it can create disposable cache data; either disable the cache or place it in an explicitly allowed temporary directory.
 
 Install the supplied `codex-read-only-approver.rules.example` as an active Codex rules file.
 It routes supported command families through `PermissionRequest`, including commands that Codex might otherwise classify as known-safe.
 Without this mediation rule, the hook cannot inspect an operation that Codex runs without asking.
 
-Do not combine the intended policy with `auto_review`, `-a never`, `--ignore-rules`, or another mode that bypasses or forbids the native approval path.
+Do not combine the intended policy with `auto_review`, `-a never`, `--ignore-rules`, `acceptForSession`, remembered approvals, or another mode that bypasses or forbids the native approval path.
 Review all exec-policy rules and all other matching hooks.
 A remembered or explicit allow rule can cause a command to bypass this hook's approval point.
 
@@ -75,7 +110,7 @@ Launch Codex with conservative Git environment defaults where practical:
 GIT_OPTIONAL_LOCKS=0 \
 GIT_NO_LAZY_FETCH=1 \
 GIT_PAGER=cat \
-codex -s danger-full-access -a untrusted -c approvals_reviewer=user --search
+codex -a on-request --search
 ```
 
 The hook requires configured FSMonitor execution, the pager, and lazy fetch to be explicitly disabled for Git commands, and optional locks to be disabled before auto-approving `git status`.
@@ -86,14 +121,17 @@ The empty value works across Git versions; `core.fsmonitor=false` is not accepte
 These settings prevent configured FSMonitor execution and reduce pager execution, on-demand object fetches, optional index writes, and configured external-diff and text-conversion execution, but they do not turn Git or repository configuration into a formally verified read-only system.
 
 ## Fail-closed behavior
+
 - malformed hook JSON: no decision;
 - invalid configuration: no decision;
 - parser exception: no decision;
 - unknown command or option: no decision;
 - executable path verification failure: no decision.
 
-No decision means Codex continues to its normal human approval prompt.
+No decision means only that this hook did not auto-approve the request.
+The active Codex policy and client determine whether to prompt, decline, or proceed.
 
 ## Reporting a vulnerability
+
 Do not include secrets or destructive proof-of-concept payloads in a public issue.
 Report a minimal command that is incorrectly classified as `ALLOW`, the operating system, command version, and expected side effect through the repository's private security advisory channel.

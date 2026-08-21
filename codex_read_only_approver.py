@@ -5,7 +5,8 @@
 The hook prints an ``allow`` decision only when the complete command can be
 classified as read-only by a deliberately small, fail-closed grammar. For a
 write-capable, executable, malformed, or unknown command it prints nothing, so
-Codex continues with its normal human approval flow.
+the pending PermissionRequest remains unresolved for the active Codex policy.
+The hook does not itself force Codex to request human approval.
 
 This is a command-string policy, not a syscall sandbox. See SECURITY.md.
 """
@@ -24,7 +25,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 
 class Verdict(str, Enum):
@@ -2854,7 +2855,8 @@ def _hook_main(config: Config) -> int:
         if result.verdict is Verdict.ALLOW:
             _emit_allow()
     except Exception:  # noqa: BLE001 -- the security boundary must fail closed.
-        # Permission hooks must fail closed: no output means normal human review.
+        # Permission hooks fail closed relative to auto-approval: no output
+        # leaves the pending request unresolved for the active Codex policy.
         return 0
     return 0
 

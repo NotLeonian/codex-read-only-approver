@@ -1,6 +1,8 @@
 ## Read-only shell command policy
+
 A PermissionRequest hook auto-approves only statically verifiable read-only commands.
 
+- Run read-only inspections without asking for conversational confirmation.
 - Separate inspection and mutation into different tool calls.
 - For read-only Git inspection, use `GIT_OPTIONAL_LOCKS=0 GIT_NO_LAZY_FETCH=1 GIT_PAGER=cat git -c core.fsmonitor= ...`.
   Add `--no-ext-diff --no-textconv` to `git diff`, ordinary `git show`, and patch-producing `git log` / `git stash show` / `git reflog show`.
@@ -8,5 +10,13 @@ A PermissionRequest hook auto-approves only statically verifiable read-only comm
   Quote search patterns and globs so the shell cannot expand them into option-looking filenames.
 - For `sed`, use stdout-only programs and never use `-i`, `w`, `W`, `e`, `s///w`, or `s///e` during inspection.
 - Do not use output redirection, `tee`, command substitution, process substitution, heredocs, shell variables, or inline interpreters for read-only inspection.
-- Use `apply_patch` or a separate explicit write command for modifications.
+- For every file creation, edit, move, or deletion, invoke the actual patch/file-change tool and require the native Codex approval UI to show the complete proposed change.
+  A diff pasted into chat, `request_permissions`, or command-execution approval is not a substitute.
+- Treat the approval request as part of the current task.
+  After one-time approval, resume the same task and continue through validation and final reporting; do not end the response merely to trigger approval.
+- If native file-change approval is unavailable or the tool would write without it, stop before writing.
+- Run tests, type checkers, linters, and formatter checks without approval when the active permission profile prevents writes to task files and external state.
+  Prefer check-only modes, disable bytecode and caches, and do not escalate a validator solely so it can write disposable cache data.
+- Use separate native command approval for shell commands that can modify files or external state.
+  Do not request a persistent prefix rule.
 - When a read-only command is rejected, simplify or split it rather than combining it with a write.

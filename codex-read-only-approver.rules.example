@@ -1,9 +1,10 @@
 # Route every command family supported by codex-read-only-approver through
-# PermissionRequest, even when Codex's built-in untrusted safelist would
-# otherwise run a known-safe form without prompting.
+# PermissionRequest so the hook can auto-approve a statically read-only form.
 #
 # Copy to ~/.codex/rules/codex-read-only-approver.rules, then review the file.
-# Use only with approval_policy="untrusted" and a trusted PermissionRequest hook.
+# Use only with interactive approval enabled and a trusted PermissionRequest hook.
+# These rules govern command execution only; they cannot create file-change
+# approval requests or display a proposed file diff.
 
 prefix_rule(pattern=[":"], decision="prompt", justification="Route supported commands through codex-read-only-approver.")
 prefix_rule(pattern=["base64"], decision="prompt", justification="Route supported commands through codex-read-only-approver.")

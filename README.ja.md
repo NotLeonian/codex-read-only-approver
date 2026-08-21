@@ -351,7 +351,7 @@ Codex がファイルを確認したり、テキストを検索したり、リ�
 ## テスト
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v
+python -B -m unittest -v
 ```
 
 読み取り専用のコマンドを扱う正常系、書き込み可能なコマンドや動的なシェル構文を扱う異常系、Codex hook の出力仕様、不正な JSON、読み取り用のコマンドに危険な接尾辞を付けたケースを検証しています。

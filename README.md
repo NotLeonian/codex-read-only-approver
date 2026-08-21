@@ -334,7 +334,7 @@ Codex may also select it automatically when it inspects files, searches text, or
 ## Tests
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v
+python -B -m unittest -v
 ```
 
 The test suite covers positive read-only cases, write-capable and dynamic-shell cases, the Codex hook output contract, malformed input, and mutation suffixes appended to otherwise safe commands.

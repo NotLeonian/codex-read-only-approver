@@ -20,16 +20,24 @@ Do not broaden a rule merely to suppress a prompt.
 Do not copy code, tests, regular expressions, or documentation from an unlicensed source.
 For licensed code, document the exact source, revision, license, required notices, and compatibility before incorporation.
 
-## Test command
+## Test commands
+
+On Unix-like systems, including WSL 2, run:
 
 ```bash
 python -B -m ruff format --check codex_read_only_approver.py test_codex_read_only_approver.py
 python -B -m ruff check --no-cache codex_read_only_approver.py test_codex_read_only_approver.py
 python -B -m mypy --cache-dir=/dev/null codex_read_only_approver.py test_codex_read_only_approver.py
 python -B -m pyright codex_read_only_approver.py test_codex_read_only_approver.py
-PYTHONDONTWRITEBYTECODE=1 python -m unittest -v
+python -B -m unittest -v
 python -m py_compile codex_read_only_approver.py test_codex_read_only_approver.py
 ```
 
-The first five commands avoid repository cache and bytecode writes, although tests may still create temporary fixtures.
+On native Windows, use the same commands but replace the Mypy command with:
+
+```powershell
+python -B -m mypy --cache-dir=nul codex_read_only_approver.py test_codex_read_only_approver.py
+```
+
+The first five commands, with the Windows-specific Mypy variant when applicable, avoid repository cache and bytecode writes, although tests may still create temporary fixtures.
 The final `py_compile` command writes bytecode and therefore needs a separate approval or an explicitly allowed cache destination.

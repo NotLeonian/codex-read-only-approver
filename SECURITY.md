@@ -95,10 +95,13 @@ They are an inspection-only degraded mode, not an equivalent fallback for this p
 For the strict guarantee, run Codex on the macOS host or another runtime where the restrictive profile initializes, and retest only after identifying an upstream fix.
 See [README.md](README.md#running-codex-inside-orbstack) for the measured results and source paths.
 
-Tests, type checkers, linters, and formatter checks can run without approval when their command forms are constrained not to mutate task files or external state.
-This rule does not depend on a read-only profile being active.
-Use check-only modes and disable bytecode, caches, and incremental state where possible.
-Do not grant a validator broader permissions solely so it can create disposable cache data; either disable the cache or place it in an explicitly allowed temporary directory.
+Tests, type checkers, linters, and formatter checks can run without approval only when an enforceable boundary technically prevents them and every process or code path they start from modifying task files or external state.
+Check-only modes and disabled bytecode, caches, or incremental state reduce expected writes but are not that boundary; test code, plugins, configuration hooks, and compiler scripts may still mutate state.
+When the boundary is active, use those options and do not grant broader permissions solely so a validator can create disposable cache data.
+
+Without an enforceable no-write boundary, treat every validator as potentially mutating and require one-time native command approval for the exact command.
+If command approval cannot be presented, do not run the validator and report the omitted validation.
+In the affected OrbStack full-access environment, that approval path is not reliable, so such validators are unavailable even with check-only or no-cache options.
 
 Install the supplied `codex-read-only-approver.rules.example` as an active Codex rules file.
 It routes supported command families through `PermissionRequest`, including commands that Codex might otherwise classify as known-safe.

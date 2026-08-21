@@ -40,4 +40,5 @@ python -B -m mypy --cache-dir=nul codex_read_only_approver.py test_codex_read_on
 ```
 
 The first five commands, with the Windows-specific Mypy variant when applicable, avoid repository cache and bytecode writes, although tests may still create temporary fixtures.
+These options reduce expected writes but do not sandbox test code, plugins, configuration hooks, or compiler scripts; when Codex runs these commands, it may proceed without approval only behind an enforceable no-write boundary, or it must use one-time native command approval for the exact command.
 The final `py_compile` command writes bytecode and therefore needs a separate approval or an explicitly allowed cache destination.

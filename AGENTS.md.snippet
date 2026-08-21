@@ -16,9 +16,10 @@ A PermissionRequest hook auto-approves only statically verifiable read-only comm
   After one-time approval, resume the same task and continue through validation and final reporting; do not end the response merely to trigger approval.
 - For a direct edit, if native file-change approval is unavailable or the tool would write without it, stop before writing.
 - Do not require or change `sandbox_mode` or `default_permissions` merely to follow this policy.
-- In an affected OrbStack guest with Codex 0.149.0 and full access, continue statically read-only inspections but treat every mutation as unavailable; do not probe by attempting a mutation.
-- Run tests, type checkers, linters, and formatter checks without approval when they are constrained not to mutate task files or external state.
-  Prefer check-only modes, disable bytecode and caches, and do not escalate a validator solely so it can write disposable cache data.
+- In an affected OrbStack guest with Codex 0.149.0 and full access, continue only inspection commands that the hook classifies as statically read-only; treat validators and every mutation as unavailable, and do not probe by attempting either one.
+- Run tests, type checkers, linters, and formatter checks without approval only when an enforceable boundary prevents the command and every process or code path it starts from modifying task files or external state.
+  Check-only, no-bytecode, and no-cache options reduce expected writes but are not that boundary; project code, plugins, configuration hooks, and compiler scripts may still mutate state.
+- Without an enforceable no-write boundary, request one-time native command approval for the exact validator command; if that approval path is unavailable, do not run it and report the omitted validation.
 - For formatters in write mode and other commands whose intended operation modifies files or external state, use separate one-time native command approval instead of file-change approval.
   Do not request both approval paths or a persistent prefix rule; after execution, inspect the complete resulting diff.
 - Do not convert a directly representable edit into a shell command merely to avoid file-change approval.

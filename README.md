@@ -135,13 +135,19 @@ Some toolchains need to write caches or temporary files.
 To allow those writes without making the workspace writable, add `":tmpdir" = "write"` and `":slash_tmp" = "write"` to `[permissions.review-project-writes.filesystem]`.
 Those are real unapproved writes, so omit them when the requirement literally covers every filesystem write.
 
-Read-only validation should not prompt merely because it uses a project environment.
-Run tests, type checkers, linters, and formatter checks automatically when their command forms are constrained not to mutate task files or external state, regardless of whether a read-only profile is active.
-Prefer check-only, no-bytecode, no-cache, or no-incremental options.
+Validation should not prompt merely because it uses a project environment, but the no-write property must be enforced rather than inferred from flags.
+Run tests, type checkers, linters, and formatter checks automatically only when an active boundary technically prevents the command and every process or code path it starts from modifying task files or external state.
+Check-only, dry-run, no-bytecode, no-cache, and no-incremental options reduce expected or incidental writes, but they are not a no-write boundary; test code, plugins, configuration hooks, and compiler scripts may still mutate state.
+
+When an enforceable no-write boundary is active, prefer those options and do not request approval merely because a validator is interpreted, project-local, or normally uses a cache.
 If a check fails only because it tried to create disposable cache data, disable that cache or redirect it to an already allowed temporary directory instead of escalating the whole command.
 A test that genuinely needs temporary files can use the optional temp grants above; this is a deliberate compatibility exception, not approval of every filesystem write.
 
-For Python tools, useful no-write forms include `python -B`, Ruff `--no-cache`, and Mypy `--cache-dir=/dev/null` on Unix or `--cache-dir=nul` on Windows.
+Without an enforceable no-write boundary, treat every validator as potentially mutating and request one-time native command approval for the exact command.
+If that approval path is unavailable, do not run the validator and report the omitted validation.
+In the affected OrbStack full-access mode below, command approval is not reliable, so such validators are unavailable even with check-only or no-cache options.
+
+For Python tools, options that reduce expected writes include `python -B`, Ruff `--no-cache`, and Mypy `--cache-dir=/dev/null` on Unix or `--cache-dir=nul` on Windows; they do not replace the boundary described above.
 Mypy still writes cache data with `--no-incremental`, so that flag alone is insufficient.
 
 ### Running Codex inside OrbStack
@@ -185,6 +191,7 @@ sandbox_mode = "danger-full-access"
 ```
 
 Under that configuration, this skill may continue statically read-only inspections, but it must treat every task-file and external-state mutation as unavailable, including write-mode formatters and other mutating commands.
+All validators, including tests, type checkers, linters, and formatter checks, are outside the statically read-only inspection category and are unavailable even with check-only or no-cache options.
 The source confirms patch auto-approval, and the tested TUI did not show command approval, so do not probe for approval by attempting a mutation during a task.
 Do not use this degraded mode for a task that requires file changes.
 
@@ -323,8 +330,9 @@ Do not put `--no-path-check` in the production hook definition unless you explic
 - use one-time native command approval, without an additional file-change approval, for formatters and other commands whose intended operation produces changes;
 - continue the same task after one-time approval rather than ending merely to show the approval UI;
 - stop before writing if the applicable native approval is unavailable;
-- run no-write tests, type checks, lint checks, and formatter checks automatically when their command forms are constrained not to mutate task files or external state;
-- disable or redirect disposable caches instead of escalating a read-only validator merely to let it cache;
+- run validators automatically only when an enforceable boundary prevents them and the code they start from modifying task files or external state;
+- use check-only and no-cache options to reduce expected writes, without treating those options as a no-write boundary;
+- require one-time native command approval when that boundary is absent, or report the validator as unavailable when approval cannot be presented;
 - avoid dynamic shell constructs in inspection commands.
 
 This improves both approval precision and auditability.

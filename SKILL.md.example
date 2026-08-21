@@ -1,6 +1,6 @@
 ---
 name: codex-read-only-approver
-description: Run statically read-only inspection and validation commands automatically, and require native Codex approval for every task-file or external-state mutation. Use when inspecting files, checking code, reviewing repository state, or changing files with the codex-read-only-approver hook; never substitute a conversational diff or broad permission for one-time native approval.
+description: Run statically read-only inspection commands automatically, run validators without approval only behind an enforceable no-write boundary, and require native Codex approval for every task-file or external-state mutation. Use when inspecting files, checking code, reviewing repository state, or changing files with the codex-read-only-approver hook; never substitute a conversational diff or broad permission for one-time native approval.
 metadata:
   version: "0.2.1"
 ---
@@ -33,7 +33,7 @@ Respect the active permission boundary, but never treat a profile, an existing w
 
 Read-only permission profiles still invoke the platform sandbox and may fail to initialize in a restricted Linux or nested-container environment, including affected OrbStack guests.
 Do not replace them with `:danger-full-access` and claim the same guarantee: without a boundary that forces file-change approval, a patch may proceed without asking.
-In an affected OrbStack guest with Codex 0.149.0, a full-access environment does not reliably emit either approval path; continue statically read-only inspections but treat every task-file and external-state mutation as unavailable.
+In an affected OrbStack guest with Codex 0.149.0, a full-access environment does not reliably emit either approval path; continue only inspection commands that the hook can classify as statically read-only, and treat validators and every task-file or external-state mutation as unavailable.
 In any other full-access environment, allow a mutation only if the exact tool path has already passed an independent end-to-end test that proves the applicable one-time native approval appears before writing.
 Do not probe for that approval by attempting an otherwise unnecessary mutation during the user's task.
 If the current client, tool, or permission boundary cannot present native approval for the proposed mutation, fail closed before writing.
@@ -72,30 +72,39 @@ If the user declines, do not retry, split, disguise, or bypass the rejected muta
 If the host cannot emit native file-change approval, or the selected direct-edit tool would write without it, stop before the mutation and explain that the active client and permission boundary must support native file-change approval.
 
 Use the native command-approval path when a shell command's intended operation mutates task files or external state, including package managers, generators, formatters in write mode, migrations, and mutating container commands.
+Also use this path for every validator when no enforceable no-write boundary is active.
 For changes produced by that exact approved command, command approval may stand in place of file-change approval; do not request both.
 Keep each such command separate, show the exact command in the approval UI, require a one-time accept or decline decision, and do not request a persistent prefix rule.
 After approval, continue the same task and inspect the complete resulting diff.
 Do not convert a directly representable edit into a shell write merely to avoid file-change approval.
 
-## Read-only validation
+## Validation
 
-Run tests, type checkers, linters, and formatter checks without approval when they are constrained not to mutate task files or external state.
-Do not condition these checks on a read-only `sandbox_mode` or permission profile.
-Do not request command approval merely because the validator is interpreted, project-local, or may normally use a cache.
+Run a validator without approval only when an enforceable boundary is active and technically prevents the validator and every process or code path it starts from modifying task files or external state.
+Do not require a particular `sandbox_mode` or permission profile by name, but do require the boundary itself to be active and working.
 
-Prefer an established check command and constrain incidental writes before running it:
+Check-only, dry-run, no-bytecode, and no-cache options reduce expected or incidental writes; they do not provide that boundary.
+Test code, plugins, configuration hooks, compiler scripts, and other project-controlled code may still mutate task files or external state.
+
+When an enforceable no-write boundary is active, do not request command approval merely because the validator is interpreted, project-local, or may normally use a cache.
+Prefer an established check command and reduce incidental writes before running it:
 
 - select check-only or dry-run modes;
 - disable bytecode, incremental state, and caches when supported;
 - direct unavoidable scratch data only to an explicitly allowed temporary directory;
-- keep network and daemon sockets unavailable unless the check genuinely requires them.
+- keep network and daemon sockets unavailable; if validation requires an endpoint, use it only when an independent control enforces read-only access, or treat the no-write boundary as absent.
+
+An allowed scratch destination is a deliberate unapproved-write exception; do not use it when the user's requirement covers every filesystem write.
 
 For common Python checks, prefer `python -B`, Ruff `--no-cache`, and Mypy `--cache-dir=/dev/null` on Unix or `--cache-dir=nul` on Windows.
 Do not assume Mypy `--no-incremental` disables cache writes; it does not.
 
 If a validation command fails only because it attempted to create a cache, bytecode, or other disposable state, retry with that write disabled or redirected to an already allowed temporary directory.
 Do not escalate the whole command solely to permit incidental cache writes.
-If the command genuinely requires a task-file or external-state mutation, separate that mutation and request native approval for it.
+
+Without an enforceable no-write boundary, treat every validator as potentially mutating and request one-time native command approval for the exact command.
+If that approval path is unavailable, do not run the validator and report the omitted validation.
+In the affected OrbStack full-access environment described above, command approval is not reliable, so all validators, including tests, type checkers, linters, and formatter checks, are unavailable even with check-only or no-cache options.
 
 ## Required workflow
 
@@ -104,7 +113,7 @@ If the command genuinely requires a task-file or external-state mutation, separa
 3. Prefer one command per tool call.
 4. Use the patch/file-change tool for directly represented file creation and edits, and require its native approval over the complete proposed change.
 5. After one-time approval, stay in the same task and complete the mutation.
-6. Run no-write tests and quality checks automatically under the active permission boundary.
+6. Run validators automatically only behind an active, enforceable no-write boundary; otherwise use one-time native command approval or report them as unavailable.
 7. Run write-producing commands and package installation as separate explicit commands with one-time native command approval; do not require additional file-change approval for their results.
 8. Inspect the resulting files and Git diff with read-only commands.
 9. If a read-only command is not auto-approved, simplify or split it before requesting approval.
@@ -129,7 +138,7 @@ Do not use the following for read-only inspection:
 - output redirection to a file;
 - `tee`;
 - inline interpreters such as `python -c`, `perl -e`, `ruby -e`, `node -e`, or `sh -c`;
-- project-local scripts or wrappers merely because they appear to be read-only, except established validation commands constrained as described above.
+- project-local scripts or wrappers merely because they appear to be read-only; validators must follow the Validation section and do not become statically read-only through check-only or no-cache options.
 
 Output redirection is acceptable only when deliberately discarding output to `/dev/null`.
 

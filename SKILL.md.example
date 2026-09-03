@@ -1,11 +1,16 @@
 ---
 name: codex-read-only-approver
-description: Run statically read-only inspection commands automatically, run validators without approval only behind an enforceable no-write boundary, and require native Codex approval for every task-file or external-state mutation. Use when inspecting files, checking code, reviewing repository state, or changing files with the codex-read-only-approver hook; never substitute a conversational diff or broad permission for one-time native approval.
+description: Use only when the user explicitly invokes `$codex-read-only-approver`. Run statically read-only inspection commands automatically, run validators without approval only behind an enforceable no-write boundary, and require native Codex approval for every task-file or external-state mutation; never substitute a conversational diff or broad permission for one-time native approval.
 metadata:
-  version: "0.2.1"
+  version: "0.3.0"
 ---
 
 # Codex Read-Only Approver
+
+## Invocation
+
+Use this skill only when the user explicitly invokes `$codex-read-only-approver`.
+Do not select it automatically based on similarity between the request and this workflow.
 
 ## Objective
 

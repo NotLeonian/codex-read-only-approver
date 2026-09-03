@@ -9,7 +9,7 @@ The hook does not itself force a prompt; the active Codex policy decides what ha
 This project is designed for Codex 0.149.0 and later with `approval_policy = "on-request"`, a human reviewer, and a client and permission boundary that can present the applicable native approval before a task file is written.
 Direct edits use native file-change approval over the complete proposed change; intentionally write-producing commands use one-time native command approval over the exact command.
 On hosts where the platform sandbox initializes successfully, the recommended strict permission profile provides a hard filesystem boundary.
-The companion skill applies independently of that profile: it runs read-only inspections immediately and fails closed before a mutation if the applicable native approval UI is unavailable.
+When explicitly invoked as `$codex-read-only-approver`, the companion skill applies independently of that profile: it runs read-only inspections immediately and fails closed before a mutation if the applicable native approval UI is unavailable.
 
 The hook is not a sandbox and does not replace Codex approval policy.
 Read [SECURITY.md](SECURITY.md) before relying on it.
@@ -340,27 +340,33 @@ This improves both approval precision and auditability.
 ## Optional Codex skill example
 
 [`SKILL.md.example`](SKILL.md.example) is an example Codex skill that instructs Codex to prefer command forms this hook can classify as statically read-only.
+[`agents/openai.yaml.example`](agents/openai.yaml.example) provides the skill's UI metadata and invocation policy.
 
-The file is inactive in this repository because Codex loads a skill only from a file named `SKILL.md` inside a skill directory.
-Installing it changes command-selection guidance only.
-It does not widen the hook's automatic allowlist, change the approval policy, or make a mutating command read-only.
-It directs Codex to use file-change approval for direct edits, command approval for write-producing commands, and to fail closed when the current client cannot provide the applicable UI.
+Both files are inactive in this repository because their `.example` suffixes are not active skill filenames.
+Install them together as `SKILL.md` and `agents/openai.yaml` inside the same skill directory.
+The invocation policy sets `allow_implicit_invocation: false`, so Codex can use the installed skill only when the user explicitly invokes `$codex-read-only-approver`.
+If `agents/openai.yaml` is omitted, implicit invocation remains enabled by default.
+Installing these files adds the skill's UI name and description and changes command-selection guidance.
+They do not widen the hook's automatic allowlist, change the approval policy, or make a mutating command read-only.
+The skill directs Codex to use file-change approval for direct edits, command approval for write-producing commands, and to fail closed when the current client cannot provide the applicable UI.
 A skill cannot technically force the client to display either UI.
 
 ### Direct file installation
 
-For user-wide use, copy the example to the user skill directory and rename it to `SKILL.md`:
+For user-wide use, copy both examples to the user skill directory under their active filenames:
 
 ```bash
-mkdir -p ~/.agents/skills/codex-read-only-approver
+mkdir -p ~/.agents/skills/codex-read-only-approver/agents
 install -m 0644 SKILL.md.example ~/.agents/skills/codex-read-only-approver/SKILL.md
+install -m 0644 agents/openai.yaml.example ~/.agents/skills/codex-read-only-approver/agents/openai.yaml
 ```
 
-For use only in another repository, replace `/path/to/repository` with that repository's absolute path and copy the example below its `.agents/skills` directory:
+For use only in another repository, replace `/path/to/repository` with that repository's absolute path and copy both examples below its `.agents/skills` directory:
 
 ```bash
-mkdir -p "/path/to/repository/.agents/skills/codex-read-only-approver"
+mkdir -p "/path/to/repository/.agents/skills/codex-read-only-approver/agents"
 install -m 0644 SKILL.md.example "/path/to/repository/.agents/skills/codex-read-only-approver/SKILL.md"
+install -m 0644 agents/openai.yaml.example "/path/to/repository/.agents/skills/codex-read-only-approver/agents/openai.yaml"
 ```
 
 These installation commands modify the filesystem and should use one-time native command approval; their results do not also require file-change approval.
@@ -368,29 +374,28 @@ Codex normally detects skill changes automatically; restart Codex if the skill d
 
 ### Optional package installation
 
-The Python package includes `SKILL.md.example` in its installed data files.
+The Python package includes `SKILL.md.example` and `agents/openai.yaml.example` in its installed data files.
 
 ```bash
 python3 -m pip install .
 ```
 
-After installation, copy the packaged example to the user skill directory without adding a separate installer module:
+After installation, copy both packaged examples to the user skill directory without adding a separate installer module:
 
 ```bash
-python3 -c 'from importlib.metadata import distribution; from pathlib import Path; import shutil, sys; dist = distribution("codex-read-only-approver"); source = next(dist.locate_file(item) for item in dist.files or () if item.name == "SKILL.md.example"); target = Path(sys.argv[1]).expanduser(); target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(source, target)' ~/.agents/skills/codex-read-only-approver/SKILL.md
+python3 -c 'from importlib.metadata import distribution; from pathlib import Path; import shutil, sys; dist = distribution("codex-read-only-approver"); sources = {item.name: dist.locate_file(item) for item in dist.files or ()}; target = Path(sys.argv[1]).expanduser(); (target / "agents").mkdir(parents=True, exist_ok=True); shutil.copyfile(sources["SKILL.md.example"], target / "SKILL.md"); shutil.copyfile(sources["openai.yaml.example"], target / "agents/openai.yaml")' ~/.agents/skills/codex-read-only-approver
 ```
 
 The installation command is intentionally explicit and should use one-time native command approval rather than automatic hook approval.
 
 ### Usage
 
-Invoke the installed skill explicitly with `$codex-read-only-approver` when needed.
+The installed invocation policy prevents automatic selection.
+Invoke the skill explicitly with `$codex-read-only-approver` whenever it is needed.
 
 ```text
 Use $codex-read-only-approver to inspect the current repository state.
 ```
-
-Codex may also select it automatically when it inspects files, searches text, or reviews repository state.
 
 ## Tests
 

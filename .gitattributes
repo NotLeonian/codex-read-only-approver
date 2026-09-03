@@ -25,9 +25,9 @@
 *.eot   binary
 
 # Markdown
-*.md         text diff=markdown whitespace=-blank-at-eol
-*.mdx        text diff=markdown whitespace=-blank-at-eol
-*.md.example text diff=markdown whitespace=-blank-at-eol
+*.md         text diff=markdown whitespace=-blank-at-eol linguist-language=Markdown
+*.mdx        text diff=markdown whitespace=-blank-at-eol linguist-language=Markdown
+*.md.example text diff=markdown whitespace=-blank-at-eol linguist-language=Markdown
 *.md.snippet text diff=markdown whitespace=-blank-at-eol linguist-language=Markdown
 
 # License
@@ -48,8 +48,9 @@ LICENSE text
 *.json.example text
 
 # YAML
-*.yml   text
-*.yaml  text
+*.yml          text linguist-language=YAML
+*.yaml         text linguist-language=YAML
+*.yaml.example text linguist-language=YAML
 
 # Configuration and lock files
 *.in            text

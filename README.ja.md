@@ -12,7 +12,7 @@ Codex 0.149.0 以降で `approval_policy = "on-request"` を使い、人間を�
 ファイルを直接編集する場合は、変更内容をすべて示す画面で承認を求めます。
 変更を行うこと自体が目的のコマンドでは、正確なコマンドを一度だけ実行するための承認を求めます。
 各 OS のサンドボックスを正常に初期化できる環境では、推奨する厳格な permission profile がファイルシステムの境界になります。
-同梱の skill は、その profile の有無にかかわらず、読み取りをすぐに行い、操作に応じた Codex 標準の承認画面を利用できなければ変更前に停止します。
+同梱の skill は、`$codex-read-only-approver` と明示的に呼び出したときに、その profile の有無にかかわらず、読み取りをすぐに行い、操作に応じた Codex 標準の承認画面を利用できなければ変更前に停止します。
 
 この hook はサンドボックスではなく、Codex の承認ポリシーを置き換えるものでもありません。
 使用前に [SECURITY.md](SECURITY.md) を確認してください。
@@ -359,10 +359,13 @@ PATH や実行ファイルの差し替えによるリスクを明示的に許容
 ## Codex skill の例
 
 [`SKILL.md.example`](SKILL.md.example) は、この hook が静的に読み取り専用と判定できる形式のコマンドを優先するよう Codex に指示する skill の例です。
+[`agents/openai.yaml.example`](agents/openai.yaml.example) は、skill の UI メタデータと呼び出しポリシーの例です。
 
-このリポジトリではファイル名が `SKILL.md.example` であるため、有効な skill として読み込まれません。
-Codex が skill として読み込むのは、skill 用ディレクトリ内にある `SKILL.md` です。
-この skill を導入しても、変更されるのはコマンドの選び方だけです。
+このリポジトリでは、どちらもファイル名に `.example` が付いているため、有効な skill のファイルとして読み込まれません。
+同じ skill 用ディレクトリ内へ、それぞれ `SKILL.md` と `agents/openai.yaml` という名前で一緒に配置してください。
+呼び出しポリシーの `allow_implicit_invocation: false` により、導入後の skill は、ユーザーが `$codex-read-only-approver` と明示的に呼び出した場合だけ使用できます。
+`agents/openai.yaml` を配置しなければ、既定では暗黙の呼び出しが有効なままです。
+これらを導入すると、skill の UI 上の名前と説明が追加され、コマンドの選び方が変わります。
 hook の自動承認の範囲や承認ポリシーを変更したり、変更を行うコマンドを読み取り専用として扱ったりするものではありません。
 skill は、直接編集する場合はファイルの変更を承認する画面を使い、変更を行うコマンドでは実行承認を使うよう指示します。
 操作に応じた画面を利用できなければ、変更前に停止します。
@@ -370,18 +373,20 @@ skill は、直接編集する場合はファイルの変更を承認する画�
 
 ### ファイルを直接配置する方法
 
-ユーザーがすべてのリポジトリで利用する場合は、例をユーザー用の skill ディレクトリへコピーし、`SKILL.md` に名前を変更します。
+ユーザーがすべてのリポジトリで利用する場合は、両方の例を有効なファイル名でユーザー用の skill ディレクトリへコピーします。
 
 ```bash
-mkdir -p ~/.agents/skills/codex-read-only-approver
+mkdir -p ~/.agents/skills/codex-read-only-approver/agents
 install -m 0644 SKILL.md.example ~/.agents/skills/codex-read-only-approver/SKILL.md
+install -m 0644 agents/openai.yaml.example ~/.agents/skills/codex-read-only-approver/agents/openai.yaml
 ```
 
-特定のリポジトリだけで利用する場合は、`/path/to/repository` をそのリポジトリの絶対パスに置き換え、`.agents/skills` 配下へコピーします。
+特定のリポジトリだけで利用する場合は、`/path/to/repository` をそのリポジトリの絶対パスに置き換え、両方の例を `.agents/skills` 配下へコピーします。
 
 ```bash
-mkdir -p "/path/to/repository/.agents/skills/codex-read-only-approver"
+mkdir -p "/path/to/repository/.agents/skills/codex-read-only-approver/agents"
 install -m 0644 SKILL.md.example "/path/to/repository/.agents/skills/codex-read-only-approver/SKILL.md"
+install -m 0644 agents/openai.yaml.example "/path/to/repository/.agents/skills/codex-read-only-approver/agents/openai.yaml"
 ```
 
 これらはファイルシステムを変更するため、一度だけの Codex 標準の実行承認を使います。
@@ -391,29 +396,28 @@ skill が表示されない場合は Codex を再起動してください。
 
 ### Python パッケージとして導入する方法
 
-Python パッケージには、インストール済みのデータファイルとして `SKILL.md.example` が含まれます。
+Python パッケージには、インストール済みのデータファイルとして `SKILL.md.example` と `agents/openai.yaml.example` が含まれます。
 
 ```bash
 python3 -m pip install .
 ```
 
-別のインストーラーモジュールは追加せず、パッケージに含まれる例をユーザー用の skill ディレクトリへコピーします。
+別のインストーラーモジュールは追加せず、パッケージに含まれる両方の例をユーザー用の skill ディレクトリへコピーします。
 
 ```bash
-python3 -c 'from importlib.metadata import distribution; from pathlib import Path; import shutil, sys; dist = distribution("codex-read-only-approver"); source = next(dist.locate_file(item) for item in dist.files or () if item.name == "SKILL.md.example"); target = Path(sys.argv[1]).expanduser(); target.parent.mkdir(parents=True, exist_ok=True); shutil.copyfile(source, target)' ~/.agents/skills/codex-read-only-approver/SKILL.md
+python3 -c 'from importlib.metadata import distribution; from pathlib import Path; import shutil, sys; dist = distribution("codex-read-only-approver"); sources = {item.name: dist.locate_file(item) for item in dist.files or ()}; target = Path(sys.argv[1]).expanduser(); (target / "agents").mkdir(parents=True, exist_ok=True); shutil.copyfile(sources["SKILL.md.example"], target / "SKILL.md"); shutil.copyfile(sources["openai.yaml.example"], target / "agents/openai.yaml")' ~/.agents/skills/codex-read-only-approver
 ```
 
 この導入コマンドは変更を行うため、hook で自動承認せず、一度だけの Codex 標準の実行承認を使います。
 
 ### 使用方法
 
-必要に応じて、導入した skill を `$codex-read-only-approver` と明示して呼び出します。
+導入した呼び出しポリシーにより、skill が自動的に選ばれることはありません。
+必要なときは、導入した skill を `$codex-read-only-approver` と明示して呼び出します。
 
 ```text
 $codex-read-only-approver を使って、現在のリポジトリの状態を確認してください。
 ```
-
-Codex がファイルを確認したり、テキストを検索したり、リポジトリの状態をレビューしたりするときは、この skill が自動的に選ばれる場合もあります。
 
 ## テスト
 

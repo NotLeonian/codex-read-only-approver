@@ -8,4 +8,5 @@ include config.json.example
 include hooks.json.example
 include codex-read-only-approver.rules.example
 include SKILL.md.example
+include agents/openai.yaml.example
 include test_codex_read_only_approver.py

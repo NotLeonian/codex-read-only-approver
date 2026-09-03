@@ -1,2 +1,6 @@
+interface:
+  display_name: "Codex Read-Only Approver"
+  short_description: "Run read-only inspections and require approval for changes"
+
 policy:
   allow_implicit_invocation: false

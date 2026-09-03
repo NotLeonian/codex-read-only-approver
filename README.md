@@ -340,13 +340,13 @@ This improves both approval precision and auditability.
 ## Optional Codex skill example
 
 [`SKILL.md.example`](SKILL.md.example) is an example Codex skill that instructs Codex to prefer command forms this hook can classify as statically read-only.
-[`agents/openai.yaml.example`](agents/openai.yaml.example) is its invocation-policy example.
+[`agents/openai.yaml.example`](agents/openai.yaml.example) provides the skill's UI metadata and invocation policy.
 
 Both files are inactive in this repository because their `.example` suffixes are not active skill filenames.
 Install them together as `SKILL.md` and `agents/openai.yaml` inside the same skill directory.
 The invocation policy sets `allow_implicit_invocation: false`, so Codex can use the installed skill only when the user explicitly invokes `$codex-read-only-approver`.
 If `agents/openai.yaml` is omitted, implicit invocation remains enabled by default.
-Installing these files changes command-selection guidance only.
+Installing these files adds the skill's UI name and description and changes command-selection guidance.
 They do not widen the hook's automatic allowlist, change the approval policy, or make a mutating command read-only.
 The skill directs Codex to use file-change approval for direct edits, command approval for write-producing commands, and to fail closed when the current client cannot provide the applicable UI.
 A skill cannot technically force the client to display either UI.

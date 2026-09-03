@@ -359,13 +359,13 @@ PATH や実行ファイルの差し替えによるリスクを明示的に許容
 ## Codex skill の例
 
 [`SKILL.md.example`](SKILL.md.example) は、この hook が静的に読み取り専用と判定できる形式のコマンドを優先するよう Codex に指示する skill の例です。
-[`agents/openai.yaml.example`](agents/openai.yaml.example) は、その呼び出しポリシーの例です。
+[`agents/openai.yaml.example`](agents/openai.yaml.example) は、skill の UI メタデータと呼び出しポリシーの例です。
 
 このリポジトリでは、どちらもファイル名に `.example` が付いているため、有効な skill のファイルとして読み込まれません。
 同じ skill 用ディレクトリ内へ、それぞれ `SKILL.md` と `agents/openai.yaml` という名前で一緒に配置してください。
 呼び出しポリシーの `allow_implicit_invocation: false` により、導入後の skill は、ユーザーが `$codex-read-only-approver` と明示的に呼び出した場合だけ使用できます。
 `agents/openai.yaml` を配置しなければ、既定では暗黙の呼び出しが有効なままです。
-これらを導入しても、変更されるのはコマンドの選び方だけです。
+これらを導入すると、skill の UI 上の名前と説明が追加され、コマンドの選び方が変わります。
 hook の自動承認の範囲や承認ポリシーを変更したり、変更を行うコマンドを読み取り専用として扱ったりするものではありません。
 skill は、直接編集する場合はファイルの変更を承認する画面を使い、変更を行うコマンドでは実行承認を使うよう指示します。
 操作に応じた画面を利用できなければ、変更前に停止します。

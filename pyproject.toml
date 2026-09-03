@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codex-read-only-approver"
-version = "0.2.1"
+version = "0.3.0"
 description = "Conservative Codex PermissionRequest hook for statically read-only Bash commands"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -60,4 +60,7 @@ py-modules = ["codex_read_only_approver"]
   "hooks.json.example",
   "codex-read-only-approver.rules.example",
   "SKILL.md.example",
+]
+"share/codex-read-only-approver/agents" = [
+  "agents/openai.yaml.example",
 ]

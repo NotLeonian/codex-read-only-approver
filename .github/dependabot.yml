@@ -5,6 +5,9 @@ updates:
     schedule:
       interval: "weekly"
     rebase-strategy: disabled
+    allow:
+      # Allow updates for all direct and indirect dependencies.
+      - dependency-type: "all"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

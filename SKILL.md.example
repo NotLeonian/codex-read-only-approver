@@ -2,7 +2,7 @@
 name: codex-read-only-approver
 description: Use only when the user explicitly invokes `$codex-read-only-approver`. Run statically read-only inspection commands automatically, run validators without approval only behind an enforceable no-write boundary, and require native Codex approval for every task-file or external-state mutation; never substitute a conversational diff or broad permission for one-time native approval.
 metadata:
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 # Codex Read-Only Approver

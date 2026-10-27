@@ -1,20 +1,24 @@
 name: tests
-
 on:
   push:
-    branches: [main]
+    branches:
+    - main
   pull_request:
-
 permissions:
   contents: read
-
 jobs:
   test:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.10", "3.13"]
+        os:
+        - ubuntu-latest
+        - macos-latest
+        - windows-latest
+        python-version:
+        - "3.11"
+        - "3.12"
+        - "3.13"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -29,7 +33,7 @@ jobs:
         run: python -m ruff format --check codex_read_only_approver.py test_codex_read_only_approver.py
       - name: Lint with Ruff
         run: python -m ruff check codex_read_only_approver.py test_codex_read_only_approver.py
-      - name: Type-check with mypy
+      - name: Type-check with Mypy
         run: python -m mypy codex_read_only_approver.py test_codex_read_only_approver.py
       - name: Type-check with Pyright
         run: python -m pyright codex_read_only_approver.py test_codex_read_only_approver.py

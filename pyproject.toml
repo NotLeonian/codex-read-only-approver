@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codex-read-only-approver"
-version = "0.3.0"
+version = "0.4.0"
 description = "Conservative Codex PermissionRequest hook for statically read-only Bash commands"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 keywords = ["codex", "hook", "permissions", "security", "cli"]
@@ -17,7 +17,6 @@ classifiers = [
     "Operating System :: MacOS",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -36,10 +35,10 @@ dev = [
 codex-read-only-approver = "codex_read_only_approver:main"
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 
 [tool.pyright]
-pythonVersion = "3.10"
+pythonVersion = "3.11"
 
 [tool.ruff.format]
 quote-style = "preserve"

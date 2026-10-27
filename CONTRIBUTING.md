@@ -31,7 +31,7 @@ uv run --locked ruff check --no-cache $PYTHON_CHECK_PATHS
 uv run --locked mypy --cache-dir=/dev/null $PYTHON_CHECK_PATHS
 uv run --locked pyright $PYTHON_CHECK_PATHS
 uv run --locked python -m unittest -v
-uv run --locked py_compile $PYTHON_CHECK_PATHS
+uv run --locked python -m py_compile $PYTHON_CHECK_PATHS
 ```
 
 On native Windows, use the same commands but replace the Mypy command with:

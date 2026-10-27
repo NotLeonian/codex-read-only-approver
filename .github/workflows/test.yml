@@ -20,8 +20,15 @@ jobs:
         - "3.12"
         - "3.13"
     runs-on: ${{ matrix.os }}
+    env:
+      PYTHON_CHECK_PATHS: >-
+        codex_read_only_approver.py
+        test_codex_read_only_approver.py
+        .github/scripts/check_uv_lock_revision.py
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
@@ -30,14 +37,18 @@ jobs:
       - name: Install development dependencies
         run: python -m pip install --group dev
       - name: Check formatting with Ruff
-        run: python -m ruff format --check codex_read_only_approver.py test_codex_read_only_approver.py
+        run: python -m ruff format --check $PYTHON_CHECK_PATHS
       - name: Lint with Ruff
-        run: python -m ruff check codex_read_only_approver.py test_codex_read_only_approver.py
+        run: python -m ruff check $PYTHON_CHECK_PATHS
       - name: Type-check with Mypy
-        run: python -m mypy codex_read_only_approver.py test_codex_read_only_approver.py
+        run: python -m mypy $PYTHON_CHECK_PATHS
       - name: Type-check with Pyright
-        run: python -m pyright codex_read_only_approver.py test_codex_read_only_approver.py
+        run: python -m pyright $PYTHON_CHECK_PATHS
       - name: Run unit tests
         run: python -m unittest -v
       - name: Compile Python sources
-        run: python -m py_compile codex_read_only_approver.py test_codex_read_only_approver.py
+        run: python -m py_compile $PYTHON_CHECK_PATHS
+      - name: Check uv.lock revision
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: uv run --locked python .github/scripts/check_uv_lock_revision.py

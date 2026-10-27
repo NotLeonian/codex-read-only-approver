@@ -25,18 +25,19 @@ For licensed code, document the exact source, revision, license, required notice
 On Unix-like systems, including WSL 2, run:
 
 ```bash
-python -B -m ruff format --check codex_read_only_approver.py test_codex_read_only_approver.py
-python -B -m ruff check --no-cache codex_read_only_approver.py test_codex_read_only_approver.py
-python -B -m mypy --cache-dir=/dev/null codex_read_only_approver.py test_codex_read_only_approver.py
-python -B -m pyright codex_read_only_approver.py test_codex_read_only_approver.py
+PYTHON_CHECK_PATHS="codex_read_only_approver.py test_codex_read_only_approver.py .github/scripts/check_uv_lock_revision.py"
+python -B -m ruff format --check $PYTHON_CHECK_PATHS
+python -B -m ruff check --no-cache $PYTHON_CHECK_PATHS
+python -B -m mypy --cache-dir=/dev/null $PYTHON_CHECK_PATHS
+python -B -m pyright $PYTHON_CHECK_PATHS
 python -B -m unittest -v
-python -m py_compile codex_read_only_approver.py test_codex_read_only_approver.py
+python -m py_compile $PYTHON_CHECK_PATHS
 ```
 
 On native Windows, use the same commands but replace the Mypy command with:
 
 ```powershell
-python -B -m mypy --cache-dir=nul codex_read_only_approver.py test_codex_read_only_approver.py
+python -B -m mypy --cache-dir=nul $PYTHON_CHECK_PATHS
 ```
 
 The first five commands, with the Windows-specific Mypy variant when applicable, avoid repository cache and bytecode writes, although tests may still create temporary fixtures.

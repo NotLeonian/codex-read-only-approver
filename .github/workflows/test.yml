@@ -20,24 +20,41 @@ jobs:
         - "3.12"
         - "3.13"
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # Expand PYTHON_CHECK_PATHS consistently, including on Windows.
+        shell: bash
+    env:
+      PYTHON_CHECK_PATHS: >-
+        codex_read_only_approver.py
+        test_codex_read_only_approver.py
+        .github/scripts/check_uv_lock_revision.py
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
         with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v10.3.1
+        with:
+          version: "0.12.0"
           python-version: ${{ matrix.python-version }}
-      - name: Upgrade pip
-        run: python -m pip install --upgrade pip
-      - name: Install development dependencies
-        run: python -m pip install --group dev
+          enable-cache: true
+      - name: Install Python and dependencies
+        run: |
+          uv python install
+          uv sync --locked
       - name: Check formatting with Ruff
-        run: python -m ruff format --check codex_read_only_approver.py test_codex_read_only_approver.py
+        run: uv run --locked ruff format --check $PYTHON_CHECK_PATHS
       - name: Lint with Ruff
-        run: python -m ruff check codex_read_only_approver.py test_codex_read_only_approver.py
+        run: uv run --locked ruff check $PYTHON_CHECK_PATHS
       - name: Type-check with Mypy
-        run: python -m mypy codex_read_only_approver.py test_codex_read_only_approver.py
+        run: uv run --locked mypy $PYTHON_CHECK_PATHS
       - name: Type-check with Pyright
-        run: python -m pyright codex_read_only_approver.py test_codex_read_only_approver.py
+        run: uv run --locked pyright $PYTHON_CHECK_PATHS
       - name: Run unit tests
-        run: python -m unittest -v
+        run: uv run --locked python -m unittest -v
       - name: Compile Python sources
-        run: python -m py_compile codex_read_only_approver.py test_codex_read_only_approver.py
+        run: uv run --locked python -m py_compile $PYTHON_CHECK_PATHS
+      - name: Check uv.lock revision
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: uv run --locked python .github/scripts/check_uv_lock_revision.py

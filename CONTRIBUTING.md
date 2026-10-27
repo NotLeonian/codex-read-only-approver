@@ -22,23 +22,38 @@ For licensed code, document the exact source, revision, license, required notice
 
 ## Test commands
 
-On Unix-like systems, including WSL 2, run:
+Run these commands from the repository root.
+CI uses Bash on all runners (Git Bash on Windows) so that `$PYTHON_CHECK_PATHS` expands consistently, and selects Python 3.11, 3.12, or 3.13 through the `setup-uv` action's `python-version` input.
+
+On Unix-like systems, including WSL 2, run the following in Bash:
 
 ```bash
-python -B -m ruff format --check codex_read_only_approver.py test_codex_read_only_approver.py
-python -B -m ruff check --no-cache codex_read_only_approver.py test_codex_read_only_approver.py
-python -B -m mypy --cache-dir=/dev/null codex_read_only_approver.py test_codex_read_only_approver.py
-python -B -m pyright codex_read_only_approver.py test_codex_read_only_approver.py
-python -B -m unittest -v
-python -m py_compile codex_read_only_approver.py test_codex_read_only_approver.py
+PYTHON_CHECK_PATHS="codex_read_only_approver.py test_codex_read_only_approver.py .github/scripts/check_uv_lock_revision.py"
+uv run --locked ruff format --check $PYTHON_CHECK_PATHS
+uv run --locked ruff check --no-cache $PYTHON_CHECK_PATHS
+uv run --locked mypy --cache-dir=/dev/null $PYTHON_CHECK_PATHS
+uv run --locked pyright $PYTHON_CHECK_PATHS
+uv run --locked python -m unittest -v
+uv run --locked python -m py_compile $PYTHON_CHECK_PATHS
 ```
 
-On native Windows, use the same commands but replace the Mypy command with:
+On native Windows, run the following in PowerShell.
+Use an array and `@PYTHON_CHECK_PATHS` to pass each path as a separate argument; Bash variable assignment and word splitting do not apply in PowerShell.
 
 ```powershell
-python -B -m mypy --cache-dir=nul codex_read_only_approver.py test_codex_read_only_approver.py
+$PYTHON_CHECK_PATHS = @(
+    "codex_read_only_approver.py"
+    "test_codex_read_only_approver.py"
+    ".github/scripts/check_uv_lock_revision.py"
+)
+uv run --locked ruff format --check @PYTHON_CHECK_PATHS
+uv run --locked ruff check --no-cache @PYTHON_CHECK_PATHS
+uv run --locked mypy --cache-dir=nul @PYTHON_CHECK_PATHS
+uv run --locked pyright @PYTHON_CHECK_PATHS
+uv run --locked python -m unittest -v
+uv run --locked python -m py_compile @PYTHON_CHECK_PATHS
 ```
 
-The first five commands, with the Windows-specific Mypy variant when applicable, avoid repository cache and bytecode writes, although tests may still create temporary fixtures.
-These options reduce expected writes but do not sandbox test code, plugins, configuration hooks, or compiler scripts; when Codex runs these commands, it may proceed without approval only behind an enforceable no-write boundary, or it must use one-time native command approval for the exact command.
+The Ruff `--no-cache` and Mypy `--cache-dir` options reduce tool cache writes, but `uv run` may still synchronize the environment and write caches, and tests may create bytecode or temporary fixtures.
+These options do not sandbox test code, plugins, configuration hooks, or compiler scripts; when Codex runs these commands, it may proceed without approval only behind an enforceable no-write boundary, or it must use one-time native command approval for the exact command.
 The final `py_compile` command writes bytecode and therefore needs a separate approval or an explicitly allowed cache destination.

@@ -20,6 +20,10 @@ jobs:
         - "3.12"
         - "3.13"
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # Expand PYTHON_CHECK_PATHS consistently, including on Windows.
+        shell: bash
     env:
       PYTHON_CHECK_PATHS: >-
         codex_read_only_approver.py
@@ -32,6 +36,7 @@ jobs:
       - uses: astral-sh/setup-uv@v10.3.1
         with:
           version: "0.12.0"
+          python-version: ${{ matrix.python-version }}
           enable-cache: true
       - name: Install Python and dependencies
         run: |

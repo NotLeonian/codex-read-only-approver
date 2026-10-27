@@ -29,25 +29,26 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v7
+      - uses: astral-sh/setup-uv@v10.3.1
         with:
-          python-version: ${{ matrix.python-version }}
-      - name: Upgrade pip
-        run: python -m pip install --upgrade pip
-      - name: Install development dependencies
-        run: python -m pip install --group dev
+          version: "0.12.0"
+          enable-cache: true
+      - name: Install Python and dependencies
+        run: |
+          uv python install
+          uv sync --locked
       - name: Check formatting with Ruff
-        run: python -m ruff format --check $PYTHON_CHECK_PATHS
+        run: uv run --locked ruff format --check $PYTHON_CHECK_PATHS
       - name: Lint with Ruff
-        run: python -m ruff check $PYTHON_CHECK_PATHS
+        run: uv run --locked ruff check $PYTHON_CHECK_PATHS
       - name: Type-check with Mypy
-        run: python -m mypy $PYTHON_CHECK_PATHS
+        run: uv run --locked mypy $PYTHON_CHECK_PATHS
       - name: Type-check with Pyright
-        run: python -m pyright $PYTHON_CHECK_PATHS
+        run: uv run --locked pyright $PYTHON_CHECK_PATHS
       - name: Run unit tests
-        run: python -m unittest -v
+        run: uv run --locked unittest -v
       - name: Compile Python sources
-        run: python -m py_compile $PYTHON_CHECK_PATHS
+        run: uv run --locked py_compile $PYTHON_CHECK_PATHS
       - name: Check uv.lock revision
         env:
           BEFORE_SHA: ${{ github.event.before }}

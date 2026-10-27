@@ -46,7 +46,7 @@ jobs:
       - name: Type-check with Pyright
         run: uv run --locked pyright $PYTHON_CHECK_PATHS
       - name: Run unit tests
-        run: uv run --locked unittest -v
+        run: uv run --locked python -m unittest -v
       - name: Compile Python sources
         run: uv run --locked py_compile $PYTHON_CHECK_PATHS
       - name: Check uv.lock revision

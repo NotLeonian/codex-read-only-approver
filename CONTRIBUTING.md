@@ -30,7 +30,7 @@ uv run --locked ruff format --check $PYTHON_CHECK_PATHS
 uv run --locked ruff check --no-cache $PYTHON_CHECK_PATHS
 uv run --locked mypy --cache-dir=/dev/null $PYTHON_CHECK_PATHS
 uv run --locked pyright $PYTHON_CHECK_PATHS
-uv run --locked unittest -v
+uv run --locked python -m unittest -v
 uv run --locked py_compile $PYTHON_CHECK_PATHS
 ```
 
